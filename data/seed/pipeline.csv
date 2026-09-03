@@ -1,0 +1,5 @@
+po_id,dependency_id,quantity_units,eta_week,note
+PO-01,DEP-01,50,2,出口审查前已下单·在途
+PO-02,DEP-02,30,4,经新加坡在途
+PO-03,DEP-03,20,3,德国直发在途
+PO-04,DEP-02,15,6,第二批在途

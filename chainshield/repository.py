@@ -22,6 +22,12 @@ class Repository:
         self.dependencies = self._load("dependencies.csv")
         self.orders = self._load("orders.csv")
         self.order_lines = self._load("order_lines.csv")
+        pipeline_path = self.data_dir / "pipeline.csv"
+        self.pipeline = (
+            pd.read_csv(pipeline_path, encoding="utf-8-sig")
+            if pipeline_path.exists()
+            else pd.DataFrame(columns=["po_id", "dependency_id", "quantity_units", "eta_week"])
+        )
         self.events = self._read_events()
 
     def _load(self, name: str) -> pd.DataFrame:
@@ -77,6 +83,11 @@ class Repository:
             )
         ]
         return rel.sort_values("date", ascending=False)
+
+    def pipeline_for(self, dependency_id: str) -> pd.DataFrame:
+        return self.pipeline[
+            self.pipeline["dependency_id"] == dependency_id
+        ].reset_index(drop=True)
 
     def summary(self) -> dict:
         return {
