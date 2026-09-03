@@ -24,7 +24,7 @@ from chainshield.signals import Signal, fetch_signals
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="链盾：导入风险信号到本地事件库")
+    parser = argparse.ArgumentParser(description="地缘风险：导入风险信号到本地事件库")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--text", help="直接粘贴一段新闻/政策文本")
     group.add_argument("--samples", action="store_true", help="抓取模拟样例信号")

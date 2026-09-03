@@ -117,7 +117,7 @@ class RSSSignalSource:
         try:
             req = urllib.request.Request(
                 self.url,
-                headers={"User-Agent": "ChainShield/0.2 (+competition demo)"},
+                headers={"User-Agent": "DiyuanRisk/0.2 (+competition demo)"},
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()

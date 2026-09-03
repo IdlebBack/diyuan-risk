@@ -1,4 +1,4 @@
-"""链盾 ChainShield — Streamlit 可视化应用入口。
+"""地缘风险 — Streamlit 可视化应用入口。
 
 运行：streamlit run app.py
 """
@@ -18,7 +18,7 @@ from chainshield.risk import exposure_report
 from chainshield.scenario import ScenarioParams, run_scenario
 from chainshield.signals import Signal, fetch_signals
 
-st.set_page_config(page_title="链盾 ChainShield", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="地缘风险", page_icon="🛡️", layout="wide")
 
 
 @st.cache_resource
@@ -28,7 +28,7 @@ def get_repo() -> Repository:
 
 repo = get_repo()
 
-st.sidebar.title("🛡️ 链盾 ChainShield")
+st.sidebar.title("🛡️ 地缘风险")
 st.sidebar.caption("供应链地缘风险雷达 · 赛道 B")
 page = st.sidebar.radio(
     "导航",
