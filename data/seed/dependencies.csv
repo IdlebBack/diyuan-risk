@@ -1,0 +1,4 @@
+dependency_id,component_id,supplier_id,purchase_share,normal_lead_weeks,current_lead_weeks,inventory_weeks,substitutability,substitute_effort_weeks,upstream_known,notes
+DEP-01,ENC-01,SUP-JP01,0.40,8,20,12,0.15,18,1,日本出口审查收紧后交期由8周拉长至16-20周
+DEP-02,CHIP-01,SUP-SG01,0.65,8,16,12,0.20,24,0,经新加坡经销商采购;上游生产与授权关系不明
+DEP-03,CAM-01,SUP-DE01,0.35,12,16,12,0.25,20,1,高端机型使用的德国工业相机

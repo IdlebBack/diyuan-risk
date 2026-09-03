@@ -1,0 +1,5 @@
+event_id,date,title,summary,countries,severity,status,source_kind,source,confidence,related_dependencies,effect_kind,effect_value,notes
+EVT-01,2026-08-24,"日本加强精密零部件出口审查","日本经济产业省扩大部分精密零部件的出口许可审查范围，涉及高精度编码器等部件",日本,4,active,fact,公开报道(模拟),high,DEP-01,lead_time_increase,12,"实际交期由约8周升至约20周"
+EVT-02,2026-08-30,"红海航运风险导致亚欧航线延误","地区安全形势变化使亚欧海运时效与运费恶化，经新加坡转运的货物到货延迟","新加坡;中东",3,active,fact,公开报道(模拟),high,DEP-02,transit_delay,4,"影响经新加坡经销的芯片到货"
+EVT-03,2026-09-01,"美国拟升级先进制程芯片出口限制(报道待核实)","外媒报道美方考虑扩大对华先进制程芯片出口限制，具体范围待官方确认",美国,3,verify,rumor,媒体报道(模拟),low,DEP-02,export_license,0,"若涉美系上游需进一步核实对经销渠道影响"
+EVT-04,2026-08-28,"德国工业相机供应商发布涨价与交期预警","供应商通知部分高端机型交期延长并上调价格",德国,2,active,fact,供应商函件(模拟),medium,DEP-03,lead_time_increase,2,"交期由12周延长至约14-16周"

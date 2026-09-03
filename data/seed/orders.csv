@@ -1,0 +1,4 @@
+order_id,customer,region,product_line,due_weeks,order_value_cny,priority
+ORD-01,国内某动力电池企业(模拟),中国,精密自动化装配设备,8,26000000,1
+ORD-02,越南某电子制造企业(模拟),越南,工业机器视觉检测设备,12,14000000,1
+ORD-03,德国某汽车零部件客户(模拟),德国,工业机器视觉检测设备,16,18000000,2

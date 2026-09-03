@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 密钥与本地配置（严禁提交）
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# 运行时生成物
+data/*.db
+*.log
+tmp/
+
+# 操作系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

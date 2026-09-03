@@ -1,0 +1,8 @@
+supplier_id,name,country,region,role,description,upstream_note
+SUP-JP01,日本精工电机株式会社(模拟),日本,东亚,direct,高精度编码器制造商,-
+SUP-SG01,新加坡芯桥贸易有限公司(模拟),新加坡,东南亚,direct_reseller,工业控制芯片经销商,上游原厂与授权关系不明
+SUP-DE01,德国光学系统股份公司(模拟),德国,欧洲,direct,高分辨率工业相机厂商,-
+SUP-CN01,国产编码器供应商甲(模拟),中国,国内,alternate,高精度编码器候选替代供应商,样品认证中
+SUP-CN02,国产控制芯片供应商乙(模拟),中国,国内,alternate,工业控制芯片候选替代供应商,尚未完成样品测试
+SUP-CN03,国产工业相机供应商丙(模拟),中国,国内,alternate,工业相机候选替代供应商,适配评估中
+SUP-UNK01,芯片上游原厂(身份不明),美国或日本?,海外,unknown,工业控制芯片的上游生产与授权方,信息缺失·待人工尽调
