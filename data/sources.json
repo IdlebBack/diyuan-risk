@@ -1,0 +1,30 @@
+{
+  "_comment": "风险信号数据源配置。include_samples=true 时每次巡检附带模拟样例信号（仅演示流程）；feeds 中 enabled=true 的 RSS/Atom 源会实际抓取。url 留空或不可达时自动跳过并给出提示。",
+  "include_samples": true,
+  "feeds": [
+    {
+      "id": "meti",
+      "name": "日本经产省新闻（示例，未启用）",
+      "url": "",
+      "country_hint": "日本",
+      "keywords": ["编码器", "輸出", "輸出規制", "貿易"],
+      "enabled": false
+    },
+    {
+      "id": "bis",
+      "name": "美国 BIS 新闻（示例，未启用）",
+      "url": "",
+      "country_hint": "美国",
+      "keywords": ["export control", "semiconductor", "entity list"],
+      "enabled": false
+    },
+    {
+      "id": "google-news",
+      "name": "Google News 检索（示例，未启用）",
+      "url": "https://news.google.com/rss/search?q=%E6%97%A5%E6%9C%AC%20%E7%B2%BE%E5%AF%86%E9%9B%B6%E9%83%A8%E4%BB%B6%20%E5%87%BA%E5%8F%A3%E5%AE%A1%E6%9F%A5&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
+      "country_hint": "日本",
+      "keywords": [],
+      "enabled": false
+    }
+  ]
+}

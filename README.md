@@ -10,7 +10,7 @@
 > 模拟企业 XX 智能装备有限公司及其全部经营数据、业务关系、风险事件均为赛题虚构，
 > 不对应任何现实企业或实际商业事实。
 
-## 当前状态（里程碑 1：骨架与数据模型）
+## 当前状态（里程碑 2：信号抓取与事件导入）
 
 - [x] Git 仓库与项目结构
 - [x] 模拟企业种子数据（组件、供应商、依赖、订单、风险事件）
@@ -18,9 +18,11 @@
 - [x] 依赖图谱构建与指标（`chainshield/graph.py`）
 - [x] 暴露度评分初版（`chainshield/risk.py`）
 - [x] 情景推演引擎 v0（`chainshield/scenario.py`）
-- [x] LLM 接口（有 Key 走真实模型，无 Key 离线占位）（`chainshield/llm.py`）
+- [x] LLM 事件抽取：有 Key 走真实模型，无 Key/失败自动规则占位并标记待核实（`chainshield/llm.py`）
+- [x] 风险信号抓取：模拟样例源 + RSS/Atom 真实抓取（`chainshield/signals.py`）
+- [x] 信号 → 结构化事件 → 本地事件库导入，语义去重（`chainshield/ingest.py`）
 - [x] Streamlit 可视化骨架（`app.py`）
-- [ ] 风险信号实时抓取与 LLM 事件抽取接通
+- [x] UI 信号巡检与导入工作台 + 命令行导入工具（`scripts/ingest_cli.py`）
 - [ ] 暴露度模型调参验证
 - [ ] 推演引擎完善（在途订单、多事件叠加、方案比较）
 - [ ] 案例测试与边界案例演示
@@ -56,6 +58,22 @@ streamlit run app.py
 ```bash
 python scripts/demo.py
 ```
+
+命令行导入风险信号到本地事件库（`data/events_live.csv`，按“标题+日期”去重）：
+
+```bash
+# 文本导入（离线时自动用规则占位并标记待核实）
+python scripts/ingest_cli.py --text "据（虚构）报道，日本拟扩大高精度编码器出口审查范围……"
+
+# 抓取模拟样例信号并入库
+python scripts/ingest_cli.py --samples
+
+# 抓取自定义 RSS 源并入库
+python scripts/ingest_cli.py --rss "https://example.com/feed.xml"
+```
+
+本地导入的事件存放在 `data/events_live.csv`（已加入 .gitignore，不随仓库提交）。
+确定有价值的条目可人工整理后并入 `data/seed/events.csv` 再提交。
 
 ## 目录结构
 

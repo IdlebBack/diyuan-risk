@@ -22,12 +22,27 @@ class Repository:
         self.dependencies = self._load("dependencies.csv")
         self.orders = self._load("orders.csv")
         self.order_lines = self._load("order_lines.csv")
-        self.events = self._load("events.csv")
+        self.events = self._read_events()
 
     def _load(self, name: str) -> pd.DataFrame:
         path = self.data_dir / name
         df = pd.read_csv(path, encoding="utf-8-sig")
         return df
+
+    def _read_events(self) -> pd.DataFrame:
+        """合并种子事件与本地导入事件（events_live.csv，可不存在）。"""
+        seed = self._load("events.csv")
+        live_path = Path(self.data_dir).parent / "events_live.csv"
+        if live_path.exists():
+            live = pd.read_csv(live_path, encoding="utf-8-sig")
+            seed = pd.concat([seed, live], ignore_index=True)
+        return seed.drop_duplicates(subset=["event_id"], keep="last").reset_index(
+            drop=True
+        )
+
+    def reload_events(self) -> None:
+        """导入新事件后调用，刷新内存中的事件表。"""
+        self.events = self._read_events()
 
     def dependency_detail(self) -> pd.DataFrame:
         """依赖 + 组件 + 供应商合并视图，附周用量与库存（按进口份额折算）。"""

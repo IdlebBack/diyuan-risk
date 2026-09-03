@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from chainshield.config import OPENAI_API_KEY
 from chainshield.events import active_events, pending_verification
 from chainshield.graph import concentration_metrics, draw_graph
+from chainshield.ingest import run_signal_pipeline, save_events
 from chainshield.llm import extract_risk_event, get_llm
 from chainshield.repository import Repository
 from chainshield.risk import exposure_report
 from chainshield.scenario import ScenarioParams, run_scenario
+from chainshield.signals import Signal, fetch_signals
 
 st.set_page_config(page_title="链盾 ChainShield", page_icon="🛡️", layout="wide")
 
@@ -34,7 +37,7 @@ page = st.sidebar.radio(
         "2 依赖图谱",
         "3 暴露度评估",
         "4 情景推演",
-        "5 风险事件与 AI 抽取",
+        "5 风险事件与信号导入",
     ],
 )
 
@@ -114,8 +117,6 @@ def page_graph() -> None:
         st.pyplot(fig)
     with col2:
         st.subheader("进口集中度")
-        import pandas as pd
-
         df = pd.DataFrame(concentration_metrics(repo))
         st.dataframe(df, width="stretch", hide_index=True)
         st.info(
@@ -200,17 +201,91 @@ def page_scenario() -> None:
 
 
 def page_events() -> None:
-    st.title("风险事件库与 AI 抽取")
+    st.title("风险事件库与信号导入")
 
-    tabs = st.tabs(["活跃事件", "待核实事件", "AI 事件抽取（实验）"])
+    tabs = st.tabs(["事件库", "信号巡检与导入", "AI 文本抽取（实验）"])
     with tabs[0]:
+        st.subheader("活跃事件")
         st.dataframe(active_events(repo), width="stretch", hide_index=True)
-    with tabs[1]:
+        st.subheader("待核实事件")
         st.dataframe(pending_verification(repo), width="stretch", hide_index=True)
+    with tabs[1]:
+        st.caption(
+            "巡检产出原始信号 → 勾选要入库的信号 → AI 结构化（离线时自动降级为规则抽取）"
+            "→ 写入本地事件库 data/events_live.csv。本地导入事件不随 git 提交，"
+            "建议整理后人工并入种子数据。"
+        )
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            include_samples = st.checkbox("包含模拟样例信号", value=True)
+        with col2:
+            feed_url = st.text_input(
+                "自定义 RSS/Atom 源（可选）", placeholder="https://example.com/rss"
+            )
+        if st.button("运行信号巡检", type="primary"):
+            signals, warnings = fetch_signals(
+                include_samples=include_samples, custom_feed_url=feed_url
+            )
+            if signals:
+                df = pd.DataFrame([s.as_dict() for s in signals])
+                df.insert(0, "选择", False)
+                st.session_state["signals_df"] = df
+            st.session_state["signal_warnings"] = warnings
+        for w in st.session_state.get("signal_warnings", []):
+            st.warning(w)
+
+        if st.session_state.get("signals_df") is not None:
+            df = st.session_state["signals_df"]
+            st.caption(f"共 {len(df)} 条信号。勾选要入库的信号后点击下方按钮。")
+            edited = st.data_editor(
+                df,
+                key="signal_editor",
+                width="stretch",
+                hide_index=True,
+                disabled=[
+                    "source_id",
+                    "source",
+                    "title",
+                    "summary",
+                    "url",
+                    "published",
+                    "country_hint",
+                ],
+            )
+            chosen = edited[edited["选择"]]
+            if st.button(
+                f"结构化并入库 {len(chosen)} 条",
+                type="secondary",
+                disabled=bool(chosen.empty),
+            ):
+                fields = (
+                    "source_id",
+                    "source",
+                    "title",
+                    "summary",
+                    "url",
+                    "published",
+                    "country_hint",
+                )
+                signals = [
+                    Signal(**{k: row[k] for k in fields})
+                    for _, row in chosen.iterrows()
+                ]
+                rows, _details = run_signal_pipeline(signals)
+                added = save_events(rows)
+                repo.reload_events()
+                st.success(
+                    f"已入库 {added} 条事件。"
+                    "置信度低或属推断/传闻的条目自动标记为“待核实”。"
+                )
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        else:
+            st.info("点击上方“运行信号巡检”开始。")
     with tabs[2]:
         if not api_ready:
             st.warning(
-                "未配置 OPENAI_API_KEY：当前为离线占位模式，抽取不会调用真实模型。"
+                "未配置 OPENAI_API_KEY：当前为离线模式，抽取自动使用规则占位"
+                "（结果会标记待核实）。"
                 "将 .env.example 复制为 .env 并填入 Key 后可启用。"
             )
         sample = st.text_area(
@@ -225,8 +300,11 @@ def page_events() -> None:
             with st.spinner("调用 AI 抽取中…"):
                 out = extract_risk_event(sample)
             st.json(out)
-            if not out.get("ok"):
-                st.caption("占位输出说明：接入真实模型后，此处将返回结构化风险事件。")
+            for w in out.get("warnings", []):
+                st.warning(w)
+            st.caption(
+                "结构化事件如需进入事件库，请到“信号巡检与导入”页选择对应信号后入库。"
+            )
 
 
 PAGES = {
@@ -234,7 +312,7 @@ PAGES = {
     "2 依赖图谱": page_graph,
     "3 暴露度评估": page_exposure,
     "4 情景推演": page_scenario,
-    "5 风险事件与 AI 抽取": page_events,
+    "5 风险事件与信号导入": page_events,
 }
 
 PAGES[page]()
