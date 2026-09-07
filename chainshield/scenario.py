@@ -251,6 +251,11 @@ def _build_messages(
         messages.append(f"{n_affected} 个订单在断供点后需要该组件，需提前协调")
     else:
         messages.append("现有订单均可在断供前完成交付")
+    if runout_week is not None and n_affected == 0:
+        warnings.append(
+            f"断供点约在第 {runout_week:.0f} 周，晚于该时点的新增订单将无库存支撑；"
+            "建议在断供前锁定替代供应或追加安全库存。"
+        )
     if r >= 99.9 and params.alt_ready_week is None and pipeline_qty <= 0:
         warnings.append("完全断供且无在途/替代供应：结果仅取决于库存，建议补充应对方案")
     return messages, warnings
@@ -319,14 +324,30 @@ def _summarize_order_impact(
     return df.sort_values(["状态", "due_weeks"]).reset_index(drop=True)
 
 
+def pending_event_ids(repo: Repository, event_ids: list[str]) -> list[str]:
+    """返回所选事件中处于“待核实”状态的事件 ID。"""
+    sel = repo.events[repo.events["event_id"].isin(event_ids)]
+    return [str(x) for x in sel.loc[sel["status"] == "verify", "event_id"].tolist()]
+
+
 def shocks_from_events(
-    repo: Repository, event_ids: list[str], horizon_weeks: int = 26
+    repo: Repository,
+    event_ids: list[str],
+    horizon_weeks: int = 26,
+    include_pending: bool = False,
 ) -> list[ScenarioParams]:
-    """把风险事件按效果类型转成推演冲击参数（同依赖多事件自动合并）。"""
+    """把风险事件按效果类型转成推演冲击参数（同依赖多事件自动合并）。
+
+    默认忽略 status=verify 的待核实事件，避免把未经确认的信息当作推演结论；
+    include_pending=True 时仅用于“假设分析”场景。
+    """
     detail = repo.dependency_detail().set_index("dependency_id")
     agg: dict[str, dict] = {}
 
-    for _, ev in repo.events[repo.events["event_id"].isin(event_ids)].iterrows():
+    selected = repo.events[repo.events["event_id"].isin(event_ids)]
+    if not include_pending:
+        selected = selected[selected["status"] != "verify"]
+    for _, ev in selected.iterrows():
         conf = str(ev.get("confidence", "low"))
         kind = str(ev.get("effect_kind", ""))
         value = float(ev.get("effect_value") or 0)

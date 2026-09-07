@@ -18,6 +18,7 @@ from chainshield.risk import WEIGHTS, exposure_report, normalize_weights
 from chainshield.scenario import (
     ScenarioParams,
     compare_plans,
+    pending_event_ids,
     run_multi_scenario,
     run_scenario,
     shocks_from_events,
@@ -45,6 +46,7 @@ page = st.sidebar.radio(
         "3 暴露度评估",
         "4 情景推演",
         "5 风险事件与信号导入",
+        "6 案例与边界演示",
     ],
 )
 
@@ -262,9 +264,19 @@ def page_scenario() -> None:
             key="multi_events",
         )
         if st.button("叠加推演", type="primary", key="run_multi"):
-            shocks = shocks_from_events(repo, [event_map[k] for k in picked])
-            if not shocks:
-                st.warning("所选事件未关联到任何现有依赖，无法推演。")
+            chosen_ids = [event_map[k] for k in picked]
+            pending = pending_event_ids(repo, chosen_ids)
+            if pending:
+                st.warning(
+                    "已忽略待核实事件（置信度低/来源为传闻，不构成推演结论）："
+                    + "；".join(str(x) for x in pending)
+                    + "。如需假设分析请先人工核实后改为 active。"
+                )
+            shocks = shocks_from_events(repo, chosen_ids)
+            if chosen_ids and not shocks:
+                st.warning("所选事件均被忽略或未关联到任何现有依赖，无法推演。")
+            elif not shocks:
+                st.info("请先选择要叠加的事件。")
             else:
                 st.session_state["multi_result"] = run_multi_scenario(repo, shocks)
         multi = st.session_state.get("multi_result")
@@ -445,12 +457,131 @@ def page_events() -> None:
             )
 
 
+def page_cases() -> None:
+    st.title("案例与边界演示（里程碑 4）")
+    st.caption(
+        "推荐口径：不改动赛题“三批订单”设定；案例 A/B 重点展示断供点预警、"
+        "断供后新增订单无缓冲与应对方案比较；案例 C/D 展示上游信息缺失与低置信度事件的处理。"
+    )
+
+    with st.expander("案例 A：日本编码器出口审查 → 断供点预警", expanded=True):
+        st.markdown(
+            "**背景**：EVT-01 后编码器新交期升至约 20 周。悲观假设下完全断供，"
+            "推演 DEP-01 的库存消耗与订单影响。"
+        )
+        a_params = ScenarioParams(
+            dependency_id="DEP-01",
+            supply_reduction_pct=100.0,
+            new_lead_weeks=20.0,
+        )
+        _render_single_result(run_scenario(repo, a_params))
+        st.info(
+            "解读：现有三批订单（第 8/12/16 周交付）均在断供前完成；"
+            "真正的风险在第 17 周之后的新增订单——届时库存已耗尽、新订单 20 周交期无法补上。"
+        )
+        st.markdown("**应对方案比较（悲观假设）**")
+        st.dataframe(
+            compare_plans(repo, a_params),
+            width="stretch",
+            hide_index=True,
+        )
+
+    with st.expander("案例 B：红海航运中断 → 芯片在途延误", expanded=True):
+        st.markdown(
+            "**背景**：EVT-02 后经新加坡转运的芯片在途订单整体延后 4 周，"
+            "新交期升至约 20 周，推演 DEP-02。"
+        )
+        b_shocks = shocks_from_events(repo, ["EVT-02"])
+        if b_shocks:
+            _render_single_result(run_scenario(repo, b_shocks[0]))
+            st.info(
+                "解读：在途延误已被计入推演（两批在途订单延后 4 周到货）；"
+                "当前订单仍可在断供前交付，但第 17 周后无缓冲，"
+                "需评估替代供应商认证或提前备货。"
+            )
+        else:
+            st.warning("案例 B 未生成推演参数，请检查事件数据。")
+
+    with st.expander("案例 C：芯片上游信息缺失", expanded=True):
+        st.markdown(
+            "**背景**：DEP-02 经新加坡经销商采购，上游原厂与授权关系不明"
+            "（`upstream_known=0`）。系统应量化信息缺口并给出行动建议，而非猜测上游事实。"
+        )
+        exp = exposure_report(repo)
+        dep02 = exp[exp["依赖编号"] == "DEP-02"].iloc[0]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("信息可见性风险", f"{dep02['信息可见性风险']:.0f}")
+        c2.metric("综合暴露度", f"{dep02['综合暴露度']:.1f}")
+        c3.metric("风险等级", dep02["风险等级"])
+        c4.metric("主要风险因子", dep02["主要风险因子"])
+        st.dataframe(
+            exp[
+                [
+                    "依赖编号",
+                    "组件",
+                    "供应商",
+                    "上游是否已知",
+                    "信息可见性风险",
+                    "主要风险因子",
+                    "不确定性提示",
+                    "综合暴露度",
+                    "风险等级",
+                ]
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+        if str(dep02["不确定性提示"]):
+            st.warning(str(dep02["不确定性提示"]))
+        else:
+            st.success("当前无未处理的上游信息缺口。")
+
+    with st.expander("案例 D：低置信度 / 待核实事件", expanded=True):
+        st.markdown(
+            "**背景**：EVT-03 为外媒传闻、置信度低、处于 verify 状态。"
+            "系统不把它当作事实：默认不参与暴露度评分与多事件推演。"
+        )
+        pend = pending_verification(repo)
+        if len(pend):
+            st.dataframe(
+                pend[
+                    [
+                        "event_id",
+                        "date",
+                        "title",
+                        "countries",
+                        "confidence",
+                        "source_kind",
+                        "source",
+                        "notes",
+                    ]
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+        st.info(
+            "待核实事件需人工确认来源与影响后，改为 active 才会进入结论；"
+            "多事件推演中若勾选待核实事件，系统会自动忽略并提示。"
+        )
+        if st.button("查看 EVT-03 若强行作为‘假设分析’的参数", key="case_d_hyp"):
+            hyp = shocks_from_events(repo, ["EVT-03"], include_pending=True)
+            if hyp:
+                st.caption(
+                    "以下仅作假设分析，不构成结论：待核实事件按保守规则折算为"
+                    "供应削减约 20% + 在途损失约 15% 的冲击参数。"
+                )
+                st.write(hyp[0])
+            else:
+                st.warning("EVT-03 未关联到可推演的依赖。")
+
+
 PAGES = {
     "1 企业概览": page_overview,
     "2 依赖图谱": page_graph,
     "3 暴露度评估": page_exposure,
     "4 情景推演": page_scenario,
     "5 风险事件与信号导入": page_events,
+    "6 案例与边界演示": page_cases,
 }
 
 PAGES[page]()

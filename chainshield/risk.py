@@ -81,6 +81,15 @@ def exposure_report(repo: Repository, weights: dict | None = None) -> pd.DataFra
     for _, dep in detail.iterrows():
         dep_id = dep["dependency_id"]
         factors = factor_scores(repo, dep_id)
+        rel_events = repo.events_for_dependency(dep_id)
+        verify_count = int((rel_events["status"] == "verify").sum())
+        upstream_known = int(dep["upstream_known"]) == 1
+        notes = []
+        if not upstream_known:
+            notes.append("上游授权关系不明：建议索取授权链或人工尽调")
+        if verify_count:
+            notes.append(f"{verify_count} 条待核实事件未计入评分，需人工确认")
+        top_factor = max(factors, key=lambda k: factors[k])
         score = round(
             w["concentration"] * factors["集中度风险"]
             + w["event"] * factors["事件强度风险"]
@@ -99,8 +108,10 @@ def exposure_report(repo: Repository, weights: dict | None = None) -> pd.DataFra
                 "当前交期(周)": int(dep["current_lead_weeks"]),
                 "库存(周)": float(dep["inventory_weeks"]),
                 "可替代性": float(dep["substitutability"]),
-                "上游是否已知": "是" if dep["upstream_known"] == 1 else "否",
+                "上游是否已知": "是" if upstream_known else "否",
                 **factors,
+                "主要风险因子": top_factor,
+                "不确定性提示": "；".join(notes),
                 "综合暴露度": score,
                 "风险等级": _level(score),
             }

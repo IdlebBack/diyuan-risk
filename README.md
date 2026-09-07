@@ -10,7 +10,7 @@
 > 模拟企业 XX 智能装备有限公司及其全部经营数据、业务关系、风险事件均为赛题虚构，
 > 不对应任何现实企业或实际商业事实。
 
-## 当前状态（里程碑 3：暴露度校准与推演引擎 v1）
+## 当前状态（里程碑 4：案例验证与边界演示）
 
 - [x] Git 仓库与项目结构
 - [x] 模拟企业种子数据（组件、供应商、依赖、订单、风险事件）
@@ -29,8 +29,15 @@
 - [x] Streamlit 可视化骨架（`app.py`）
 - [x] UI 信号巡检与导入工作台 + 命令行导入工具（`scripts/ingest_cli.py`）
 - [x] UI：暴露度权重调节 + 敏感性/校验面板；推演页拆分单依赖/多事件/方案比较
-- [ ] 案例测试与边界案例演示
-- [ ] 产品介绍 PPT、README 完善、打包提交
+- [x] 案例测试与边界案例演示：案例 A–D 口径定稿与自动化回归
+      （`scripts/cases.py`；上游不明/低置信度事件均不产生确定结论）
+- [x] 暴露度报告新增“主要风险因子 / 不确定性提示”，上游不明时给出
+      授权链与人工尽调建议
+- [x] 待核实事件默认不参与推演；UI 勾选时显式提示；`include_pending=True`
+      仅作为“假设分析”
+- [x] Streamlit 新增“6 案例与边界演示”页
+- [x] 测试与迭代记录：`docs/test_cases.md`、`docs/iteration_log.md`
+- [ ] 产品介绍 PPT、README 最终完善、打包提交
 
 ## 环境准备
 
@@ -63,6 +70,12 @@ streamlit run app.py
 python scripts/demo.py
 ```
 
+案例 A–D 自动化回归（断供点、订单影响、上游信息缺失、待核实事件）：
+
+```bash
+python scripts/cases.py
+```
+
 命令行导入风险信号到本地事件库（`data/events_live.csv`，按“标题+日期”去重）：
 
 ```bash
@@ -93,8 +106,13 @@ chainshield/
 │  ├─ llm.py              # LLM 接口（含离线占位）
 │  └─ config.py           # 环境配置
 ├─ data/seed/             # 种子数据（CSV，全部虚构）
-├─ docs/                  # 指南、产品设计方案
-└─ scripts/demo.py        # 冒烟演示
+├─ docs/
+│  ├─ guide.pdf           # 赛制活动指南
+│  ├─ 产品设计方案.md      # 产品设计
+│  ├─ test_cases.md       # 案例验收与测试基线
+│  └─ iteration_log.md    # 迭代日志
+├─ scripts/demo.py        # 冒烟演示
+└─ scripts/cases.py       # 案例 A–D 自动化回归
 ```
 
 ## 两人协作与 Git 工作流
