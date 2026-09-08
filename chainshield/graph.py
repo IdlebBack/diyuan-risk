@@ -6,17 +6,39 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import networkx as nx
 
 from .repository import Repository
 
-# 中文字体（Windows 通常可用 Microsoft YaHei / SimHei）
-for _font in ("Microsoft YaHei", "SimHei", "PingFang SC", "Noto Sans CJK SC"):
-    try:
-        plt.rcParams["font.sans-serif"] = [_font, "DejaVu Sans"]
-        break
-    except Exception:
-        continue
+
+def _pick_cjk_font() -> str | None:
+    """从当前 matplotlib 字体表中挑选可用的中文字体，避免无效回退。"""
+    available = {f.name for f in fm.fontManager.ttflist}
+    for candidate in (
+        "Microsoft YaHei",
+        "SimHei",
+        "PingFang SC",
+        "Noto Sans CJK SC",
+        "Source Han Sans SC",
+        "WenQuanYi Zen Hei",
+    ):
+        if candidate in available:
+            return candidate
+    return None
+
+
+_cjk_font = _pick_cjk_font()
+if _cjk_font:
+    plt.rcParams["font.sans-serif"] = [_cjk_font, "DejaVu Sans"]
+else:
+    plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
+    import warnings
+
+    warnings.warn(
+        "未找到可用中文字体，依赖图谱中的中文可能显示为方块；"
+        "请安装 Microsoft YaHei、PingFang SC 或 Noto Sans CJK SC。"
+    )
 plt.rcParams["axes.unicode_minus"] = False
 
 COLORS = {

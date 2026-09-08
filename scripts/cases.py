@@ -16,6 +16,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+
+def _enable_utf8_stdio() -> None:
+    """Windows GBK 控制台会把 ✅ 等字符误判为不可编码，统一转成 UTF-8 输出。"""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_enable_utf8_stdio()
+
 from chainshield.events import active_events, pending_verification
 from chainshield.repository import Repository
 from chainshield.risk import exposure_report

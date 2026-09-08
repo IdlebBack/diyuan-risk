@@ -2,7 +2,8 @@
 
 离散周模型，回答三个层次的问题：
 1. 单依赖冲击：现有库存 + 在途订单 + 持续补货下，断供点在几周？
-2. 多事件叠加：多个事件同时发生时，哪些订单受影响？
+2. 多依赖并行推演：多个依赖同时受冲击时，聚合到订单级的综合影响
+   （同一依赖上的多个事件先在 shocks_from_events 中合并）；
 3. 应对方案比较：加库存 / 替代供应 / 排产与客户协商，各有什么效果与代价。
 
 模型假设（透明可复核）：
@@ -272,7 +273,7 @@ def run_multi_scenario(
         results=results,
         order_impact=_summarize_order_impact(repo, results),
         messages=[
-            f"{len(shocks)} 个冲击叠加推演完成："
+            f"{len(shocks)} 个依赖并行推演完成（同依赖事件已先合并）："
             + "；".join(
                 f"{r.dependency['组件']}→第 {r.runout_week:.0f} 周断供"
                 if r.runout_week

@@ -35,14 +35,16 @@ def sensitivity_report(repo: Repository, weights: dict | None = None) -> pd.Data
             "波动幅度": (df_v.max(axis=1) - df_v.min(axis=1)).values,
         }
     ).round(1)
-    # 排序稳定性：当前分排序下，前三名是否在所有扰动中都保持前三
+    # 排序稳定性：当前风险最高的依赖是否在所有扰动中仍保持第一。
+    # 当前只有 3 条依赖，“前三名稳定性”是全样本平凡判断，因此改用 top1。
     rank = base.sort_values(ascending=False).index.tolist()
+    top1 = rank[0]
     stable = all(
-        set(df_v[col].sort_values(ascending=False).index[:3])
-        == set(rank[:3])
+        df_v[col].sort_values(ascending=False).index[0] == top1
         for col in df_v.columns
     )
-    out.attrs["top3_stable"] = stable
+    out.attrs["top1_stable"] = stable
+    out.attrs["top_dependency"] = top1
     return out
 
 

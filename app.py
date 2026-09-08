@@ -184,11 +184,13 @@ def page_exposure() -> None:
     with st.expander("权重敏感性分析（每个权重 ±30%）", expanded=False):
         sens = sensitivity_report(repo, weights)
         st.dataframe(sens, width="stretch", hide_index=True)
-        stable = sens.attrs.get("top3_stable")
+        stable = sens.attrs.get("top1_stable")
+        top_dep = sens.attrs.get("top_dependency", "最高风险依赖")
         if stable is not None:
-            st.success("前三名排序在所有扰动下保持稳定，结论对权重不敏感。"
+            st.success(f"最高风险依赖（{top_dep}）在所有扰动下保持第一，"
+                       "当前结论对权重不敏感；波动幅度见上表。"
                        if stable else
-                       "注意：前三名排序在部分扰动下会变化，解读时需谨慎。")
+                       "注意：最高风险依赖在部分扰动下会变化，解读时需谨慎。")
 
     with st.expander("案例校验（反事实检查）", expanded=False):
         for item in case_checks(repo):
@@ -213,7 +215,7 @@ def page_scenario() -> None:
         for _, d in detail.iterrows()
     }
 
-    tab1, tab2, tab3 = st.tabs(["单依赖推演", "多事件叠加", "应对方案比较"])
+    tab1, tab2, tab3 = st.tabs(["单依赖推演", "多依赖并行", "应对方案比较"])
 
     with tab1:
         st.caption(
@@ -247,8 +249,8 @@ def page_scenario() -> None:
 
     with tab2:
         st.caption(
-            "从事件库选取事件叠加推演（事件效果自动转为冲击参数：交期延长/在途延误/"
-            "供应削减，同依赖多事件自动合并）。"
+            "从事件库选取事件并行推演（事件效果自动转为冲击参数：交期延长/在途延误/"
+            "供应削减；同一依赖上的多事件先自动合并，再聚合订单级影响）。"
         )
         event_map = {
             f"{e['event_id']} · {e['title']}"
@@ -539,7 +541,7 @@ def page_cases() -> None:
     with st.expander("案例 D：低置信度 / 待核实事件", expanded=True):
         st.markdown(
             "**背景**：EVT-03 为外媒传闻、置信度低、处于 verify 状态。"
-            "系统不把它当作事实：默认不参与暴露度评分与多事件推演。"
+            "系统不把它当作事实：默认不参与暴露度评分与多依赖并行推演。"
         )
         pend = pending_verification(repo)
         if len(pend):
@@ -561,7 +563,7 @@ def page_cases() -> None:
             )
         st.info(
             "待核实事件需人工确认来源与影响后，改为 active 才会进入结论；"
-            "多事件推演中若勾选待核实事件，系统会自动忽略并提示。"
+            "多依赖并行推演中若勾选待核实事件，系统会自动忽略并提示。"
         )
         if st.button("查看 EVT-03 若强行作为‘假设分析’的参数", key="case_d_hyp"):
             hyp = shocks_from_events(repo, ["EVT-03"], include_pending=True)
