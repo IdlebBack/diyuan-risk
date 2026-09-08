@@ -147,7 +147,10 @@ _EXTRACT_SYSTEM = (
     "你是地缘政治风险事件结构化抽取器。从文本中抽取风险事件，"
     "输出 JSON，字段包括：title, summary, countries, severity(1-5), "
     "status(active/verify), source_kind(fact/inference/rumor), "
-    "confidence(high/medium/low), effect_kind, effect_value, notes。"
+    "confidence(high/medium/low), related_dependencies, "
+    "related_dependencies 只能是 DEP-01/DEP-02/DEP-03，不能确定就输出空字符串；"
+    "effect_kind(lead_time_increase/transit_delay/export_license/supply_reduction_pct), "
+    "effect_value(数值，含义随 effect_kind 而定), notes。"
     "事实/推断/待核实必须区分，信息不足时 confidence=low。"
 )
 

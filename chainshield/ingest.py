@@ -35,11 +35,25 @@ EVENT_COLUMNS = [
     "notes",
 ]
 
+_EFFECT_KIND_ALIASES = {
+    "export_control": "export_license",
+    "export_restriction": "export_license",
+    "license_restriction": "export_license",
+    "export_permit": "export_license",
+    "lead_time": "lead_time_increase",
+    "lead_time_increase_weeks": "lead_time_increase",
+    "delay": "transit_delay",
+    "transit_delay_weeks": "transit_delay",
+    "supply_cut": "supply_reduction_pct",
+    "supply_reduction": "supply_reduction_pct",
+    "supply_shortage": "supply_reduction_pct",
+}
+
 # 组件关键词 → 依赖编号（用于自动关联）
 KEYWORD_DEPENDENCY = [
-    (("编码器", "伺服", "电机"), "DEP-01"),
-    (("芯片", "半导体", "晶圆", "集成电路", "电子元器件"), "DEP-02"),
-    (("相机", "光学", "图像传感器"), "DEP-03"),
+    (("编码器", "伺服", "电机", "数控", "机床", "机械臂"), "DEP-01"),
+    (("芯片", "半导体", "晶圆", "集成电路", "电子元器件", "光刻机", "先进制程"), "DEP-02"),
+    (("相机", "光学", "图像传感器", "镜头"), "DEP-03"),
 ]
 
 
@@ -66,17 +80,35 @@ def _clean_text(value: object, limit: int = 500) -> str:
     return text[:limit]
 
 
+def _join_values(value: object) -> object:
+    """真实模型可能把国家/依赖返回为列表，统一转成以分号分隔的字符串。"""
+    if isinstance(value, (list, tuple)):
+        return ";".join(
+            str(item).strip()
+            for item in value
+            if str(item).strip()
+        )
+    return value
+
+
 def normalize_event(raw: dict) -> dict:
     """把任意来源的抽取结果规范化为事件行。缺失字段给保守默认值。"""
     title = _clean_text(raw.get("title"), 200) or "未命名风险信号"
-    countries = _clean_text(raw.get("countries") or "", 100)
+    countries = _clean_text(_join_values(raw.get("countries")) or "", 100)
+    related_raw = _clean_text(_join_values(raw.get("related_dependencies")), 100)
+    known_deps = ";".join(
+        dep_id.strip()
+        for dep_id in related_raw.split(";")
+        if dep_id.strip() in {"DEP-01", "DEP-02", "DEP-03"}
+    )
     source_kind = _pick(raw.get("source_kind"), ["fact", "inference", "rumor"], "inference")
     confidence = _pick(raw.get("confidence"), ["high", "medium", "low"], "low")
     status = _pick(raw.get("status"), ["active", "verify"], "verify")
     # 事实但置信度低，或来源为传闻/推断时，一律保守置为待核实
     if confidence == "low" or source_kind in ("inference", "rumor"):
         status = "verify"
-    effect_kind = _clean_text(raw.get("effect_kind"), 60)
+    effect_kind = _clean_text(raw.get("effect_kind"), 60).strip()
+    effect_kind = _EFFECT_KIND_ALIASES.get(effect_kind, effect_kind)
     if not effect_kind:
         effect_kind = "supply_reduction_pct"
     return {
@@ -90,7 +122,7 @@ def normalize_event(raw: dict) -> dict:
         "source_kind": source_kind,
         "source": _clean_text(raw.get("source") or "未知来源", 100),
         "confidence": confidence,
-        "related_dependencies": _clean_text(raw.get("related_dependencies"), 100)
+        "related_dependencies": known_deps
         or suggest_dependency(title + " " + str(raw.get("summary") or "")),
         "effect_kind": effect_kind,
         "effect_value": _clamp_int(raw.get("effect_value"), 0, 1000, 0),

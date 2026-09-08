@@ -50,7 +50,7 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def main() -> None:
-    repo = Repository()
+    repo = Repository(include_live=False)
     failures: list[str] = []
 
     try:

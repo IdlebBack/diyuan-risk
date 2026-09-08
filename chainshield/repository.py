@@ -15,8 +15,14 @@ from .config import DATA_DIR
 class Repository:
     """装载并关联种子 CSV，提供数据表与合并视图。"""
 
-    def __init__(self, data_dir: Path | str = DATA_DIR) -> None:
+    def __init__(
+        self,
+        data_dir: Path | str = DATA_DIR,
+        include_live: bool = True,
+    ) -> None:
+        """include_live=False 时只读种子事件，用于可复现的自动化回归。"""
         self.data_dir = Path(data_dir)
+        self.include_live = include_live
         self.components = self._load("components.csv")
         self.suppliers = self._load("suppliers.csv")
         self.dependencies = self._load("dependencies.csv")
@@ -39,7 +45,7 @@ class Repository:
         """合并种子事件与本地导入事件（events_live.csv，可不存在）。"""
         seed = self._load("events.csv")
         live_path = Path(self.data_dir).parent / "events_live.csv"
-        if live_path.exists():
+        if self.include_live and live_path.exists():
             live = pd.read_csv(live_path, encoding="utf-8-sig")
             seed = pd.concat([seed, live], ignore_index=True)
         return seed.drop_duplicates(subset=["event_id"], keep="last").reset_index(

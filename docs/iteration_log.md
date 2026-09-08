@@ -27,6 +27,24 @@
 - 填入新 Key 后做真实“RSS 抓取 → LLM 抽取 → 入库”端到端验证；
 - 之后再把“AI 结果解读”接入推演结果页。
 
+## 2026-09-08｜真实 LLM 链路验证（DeepSeek）
+
+### 结果
+
+- 配置 DeepSeek API Key（只写入本地 `.env`，已被 .gitignore 忽略）；
+- 真实 Google News RSS 抓取成功（单次约 0.8 秒返回 10 条）；
+- “真实抓取 → DeepSeek 抽取 → 规范化入库”链路跑通，入库 2 条本地事件，
+  其中 1 条自动关联到 DEP-01；不确定信息按 low/medium 置信度标记待核实；
+- `extract_risk_event` 与 `summarize_event` 均返回模型真实结果。
+
+### 兼容性修复
+
+- 真实模型可能把 `countries/related_dependencies` 返回为列表，入库前统一转成分号字符串；
+- `related_dependencies` 只保留 DEP-01/DEP-02/DEP-03，其余由关键词兜底；
+- `effect_kind` 增加别名映射，如 export_control → export_license；
+- `Repository(include_live=False)` 供自动化回归使用，保证在本地导入真实事件后
+  案例基线仍可复现。
+
 ## 2026-09-08｜评审整改（第一轮）
 
 ### 背景
