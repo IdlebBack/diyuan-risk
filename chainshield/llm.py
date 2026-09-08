@@ -47,6 +47,8 @@ class OpenAILlm(BaseLlm):
         self._client = OpenAI(
             api_key=config.OPENAI_API_KEY,
             base_url=config.OPENAI_BASE_URL or None,
+            timeout=config.OPENAI_TIMEOUT,
+            max_retries=1,
         )
         self.model = config.OPENAI_MODEL
 
@@ -193,7 +195,15 @@ def summarize_event(row: dict) -> dict:
         f"来源：{row.get('source')} 置信度：{row.get('confidence')}\n"
         "请用一句话总结并明确指出：哪些是事实、哪些是推断、需要人工核实什么。"
     )
-    return llm.chat("你是供应链地缘风险分析师，输出 JSON：{summary, facts, to_verify}", prompt)
+    try:
+        return llm.chat("你是供应链地缘风险分析师，输出 JSON：{summary, facts, to_verify}", prompt)
+    except Exception as exc:  # 网络/鉴权/超时等，一律降级为明确提示，不让页面崩溃
+        return {
+            "ok": False,
+            "provider": llm.name,
+            "warnings": [f"调用模型失败：{exc}"],
+            "data": None,
+        }
 
 
 def interpret_scenario(context: str) -> dict:
@@ -216,4 +226,12 @@ def interpret_scenario(context: str) -> dict:
         "不要编造数值；必须把库存、交期、替代周期等视为需要使用者校准的假设，"
         "并在 parameter_caveats 中提示人工确认。"
     )
-    return llm.chat(system, f"推演结果：\n{context}")
+    try:
+        return llm.chat(system, f"推演结果：\n{context}")
+    except Exception as exc:  # 与 extract_risk_event 相同的降级策略
+        return {
+            "ok": False,
+            "provider": llm.name,
+            "warnings": [f"调用模型失败：{exc}"],
+            "data": None,
+        }
