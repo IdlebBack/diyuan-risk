@@ -36,6 +36,8 @@
 - “真实抓取 → DeepSeek 抽取 → 规范化入库”链路跑通，入库 2 条本地事件，
   其中 1 条自动关联到 DEP-01；不确定信息按 low/medium 置信度标记待核实；
 - `extract_risk_event` 与 `summarize_event` 均返回模型真实结果。
+- 新增 `interpret_scenario` 并接入推演页：单依赖与多依赖并行结果可生成
+  “AI 解读与行动注意事项”，输出附参数校准与人工复核提醒。
 
 ### 兼容性修复
 

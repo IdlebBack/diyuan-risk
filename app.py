@@ -12,7 +12,12 @@ from chainshield.config import OPENAI_API_KEY
 from chainshield.events import active_events, pending_verification
 from chainshield.graph import concentration_metrics, draw_graph
 from chainshield.ingest import run_signal_pipeline, save_events
-from chainshield.llm import extract_risk_event, get_llm, summarize_event
+from chainshield.llm import (
+    extract_risk_event,
+    get_llm,
+    interpret_scenario,
+    summarize_event,
+)
 from chainshield.repository import Repository
 from chainshield.risk import WEIGHTS, exposure_report, normalize_weights
 from chainshield.scenario import (
@@ -293,6 +298,20 @@ def page_scenario() -> None:
                 )
             st.subheader("叠加后的订单影响")
             st.dataframe(multi.order_impact, width="stretch", hide_index=True)
+            context_lines = list(multi.messages)
+            context_lines.append(
+                "受影响订单："
+                + str(
+                    multi.order_impact[
+                        multi.order_impact["状态"] == "受影响·需协调"
+                    ]["order_id"].tolist()
+                )
+            )
+            _render_ai_interpretation(
+                key="multi_interpret",
+                context="\n".join(context_lines),
+                caption="解读仅基于上述确定性推演，不构成最终决策建议。",
+            )
 
     with tab3:
         st.caption(
@@ -338,6 +357,14 @@ def _render_single_result(result) -> None:
     for w in result.warnings:
         st.warning(w)
 
+    context_lines = list(result.messages)
+    context_lines.extend(result.warnings)
+    _render_ai_interpretation(
+        key="single_interpret",
+        context="\n".join(context_lines),
+        caption="解读仅基于上述确定性推演，不构成最终决策建议。",
+    )
+
     colA, colB = st.columns(2)
     with colA:
         st.subheader("库存消耗曲线")
@@ -350,6 +377,33 @@ def _render_single_result(result) -> None:
             "受影响订单按优先级处理：priority=1 优先保障（替代供应/借料/内部调配），"
             "低优先级订单可协商顺延或分批发运。"
         )
+
+
+def _render_ai_interpretation(key: str, context: str, caption: str) -> None:
+    with st.expander("AI 结果解读（实验）", expanded=False):
+        st.caption(caption)
+        if st.button("生成解读与行动注意事项", key=key):
+            with st.spinner("调用 AI 解读中…"):
+                out = interpret_scenario(context)
+            if out.get("ok") and out.get("data"):
+                data = out["data"]
+                if data.get("summary"):
+                    st.markdown(f"**解读**：{data['summary']}")
+                if data.get("key_actions"):
+                    st.markdown("**建议行动**")
+                    for act in data["key_actions"]:
+                        st.markdown(f"- {act}")
+                if data.get("to_verify"):
+                    st.markdown("**仍需核实**")
+                    for item in data["to_verify"]:
+                        st.markdown(f"- {item}")
+                if data.get("parameter_caveats"):
+                    st.caption("；".join(str(x) for x in data["parameter_caveats"]))
+                st.caption("AI 输出为辅助解读，需人工复核后用于决策。")
+            else:
+                for w in out.get("warnings", []):
+                    st.warning(w)
+                st.info("未生成 AI 解读（离线或调用失败）；请检查 Key 后重试。")
 
 
 def page_events() -> None:

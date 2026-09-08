@@ -194,3 +194,26 @@ def summarize_event(row: dict) -> dict:
         "请用一句话总结并明确指出：哪些是事实、哪些是推断、需要人工核实什么。"
     )
     return llm.chat("你是供应链地缘风险分析师，输出 JSON：{summary, facts, to_verify}", prompt)
+
+
+def interpret_scenario(context: str) -> dict:
+    """基于确定性推演结果生成解读与行动注意事项（可选，需 API Key）。
+
+    推演数值本身来自 scenario.py 的规则引擎；本函数只把事实翻译成
+    决策者能看懂的行动语言，不虚构任何数字，并保留人工确认提醒。
+    """
+    llm = get_llm()
+    if isinstance(llm, MockLlm):
+        return {
+            "ok": False,
+            "provider": llm.name,
+            "warnings": llm.chat("", "").get("warnings", []),
+            "data": None,
+        }
+    system = (
+        "你是供应链地缘风险分析师。输入是一份确定性推演结果的事实与警告。"
+        "输出 JSON：{summary, key_actions:[], to_verify:[], parameter_caveats:[]}。"
+        "不要编造数值；必须把库存、交期、替代周期等视为需要使用者校准的假设，"
+        "并在 parameter_caveats 中提示人工确认。"
+    )
+    return llm.chat(system, f"推演结果：\n{context}")
