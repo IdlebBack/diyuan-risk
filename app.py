@@ -250,7 +250,7 @@ def page_scenario() -> None:
             pipeline_delay_weeks=float(pipe_delay),
         )
         result = run_scenario(repo, params)
-        _render_single_result(result)
+        _render_single_result(result, interpret_key="single_interpret")
 
     with tab2:
         st.caption(
@@ -342,7 +342,7 @@ def page_scenario() -> None:
         )
 
 
-def _render_single_result(result) -> None:
+def _render_single_result(result, interpret_key: str = "single_interpret") -> None:
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("现有库存", f"{result.stock_units:.0f} 件")
     m2.metric("每周消耗", f"{result.weekly_usage:.1f} 件")
@@ -360,7 +360,7 @@ def _render_single_result(result) -> None:
     context_lines = list(result.messages)
     context_lines.extend(result.warnings)
     _render_ai_interpretation(
-        key="single_interpret",
+        key=interpret_key,
         context="\n".join(context_lines),
         caption="解读仅基于上述确定性推演，不构成最终决策建议。",
     )
@@ -557,7 +557,9 @@ def page_cases() -> None:
             supply_reduction_pct=100.0,
             new_lead_weeks=20.0,
         )
-        _render_single_result(run_scenario(repo, a_params))
+        _render_single_result(
+            run_scenario(repo, a_params), interpret_key="case_a_interpret"
+        )
         st.info(
             "解读：现有三批订单（第 8/12/16 周交付）均在断供前完成；"
             "真正的风险在第 17 周之后的新增订单——届时库存已耗尽、新订单 20 周交期无法补上。"
@@ -576,7 +578,9 @@ def page_cases() -> None:
         )
         b_shocks = shocks_from_events(repo, ["EVT-02"])
         if b_shocks:
-            _render_single_result(run_scenario(repo, b_shocks[0]))
+            _render_single_result(
+                run_scenario(repo, b_shocks[0]), interpret_key="case_b_interpret"
+            )
             st.info(
                 "解读：在途延误已被计入推演（两批在途订单延后 4 周到货）；"
                 "当前订单仍可在断供前交付，但第 17 周后无缓冲，"

@@ -38,6 +38,7 @@
 - `extract_risk_event` 与 `summarize_event` 均返回模型真实结果。
 - 新增 `interpret_scenario` 并接入推演页：单依赖与多依赖并行结果可生成
   “AI 解读与行动注意事项”，输出附参数校准与人工复核提醒。
+- 修复：案例页 A/B 同页渲染单依赖解读时按钮 key 冲突，改为 case_a/case_b 独立 key。
 
 ### 兼容性修复
 
