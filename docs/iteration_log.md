@@ -2,6 +2,31 @@
 
 按赛制要求记录“开发—测试—反思—迭代”过程。所有企业、订单、事件数据均为赛题虚构。
 
+## 2026-09-08｜评审整改（第二轮：无需 Key 的可完成项）
+
+### 改动
+
+- 启用 `data/sources.json` 中的 Google News RSS 源（日本精密零部件出口审查），
+  网络可达时即可做“真实抓取 → 规则/LLM 抽取”演示；
+- `app.py` 新增“AI 事件摘要（实验）”入口，接通 `llm.summarize_event`；
+  未配置 Key 时明确提示离线占位，不产生结论；
+- 新增 `.streamlit/config.toml` 与 README“在线部署”步骤，为
+  Streamlit Community Cloud 一键部署做准备；
+- 新增 `docs/需求调研访谈提纲.md`（访谈 + 问卷精简版 + 结果整理规范），
+  供团队自行开展真实企业调研；
+- 提交包包含 `.streamlit/`。
+
+### 验证
+
+- 六个页面在离线模式下全部打开无异常，事件摘要入口正常显示离线提示；
+- `python scripts/cases.py` 与 `python scripts/demo.py` 退出码 0；
+- `python -m compileall -q app.py chainshield scripts` 通过。
+
+### 待办（等待用户提供有效 API Key）
+
+- 填入新 Key 后做真实“RSS 抓取 → LLM 抽取 → 入库”端到端验证；
+- 之后再把“AI 结果解读”接入推演结果页。
+
 ## 2026-09-08｜评审整改（第一轮）
 
 ### 背景

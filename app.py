@@ -12,7 +12,7 @@ from chainshield.config import OPENAI_API_KEY
 from chainshield.events import active_events, pending_verification
 from chainshield.graph import concentration_metrics, draw_graph
 from chainshield.ingest import run_signal_pipeline, save_events
-from chainshield.llm import extract_risk_event, get_llm
+from chainshield.llm import extract_risk_event, get_llm, summarize_event
 from chainshield.repository import Repository
 from chainshield.risk import WEIGHTS, exposure_report, normalize_weights
 from chainshield.scenario import (
@@ -361,6 +361,33 @@ def page_events() -> None:
         st.dataframe(active_events(repo), width="stretch", hide_index=True)
         st.subheader("待核实事件")
         st.dataframe(pending_verification(repo), width="stretch", hide_index=True)
+        st.subheader("AI 事件摘要（实验）")
+        st.caption(
+            "对单条事件生成“事实、推断、待核实”一句话摘要。"
+            "配置 OPENAI_API_KEY 后使用真实模型；离线时返回占位提示，不构成结论。"
+        )
+        event_rows = pd.concat(
+            [active_events(repo), pending_verification(repo)],
+            ignore_index=True,
+        ).drop_duplicates(subset=["event_id"])
+        if len(event_rows):
+            choices = {
+                f"{row['event_id']}｜{row['title']}": row.to_dict()
+                for _, row in event_rows.iterrows()
+            }
+            selected = st.selectbox("选择事件", list(choices.keys()))
+            if st.button("生成事件摘要", type="secondary"):
+                with st.spinner("调用 AI 摘要中…"):
+                    out = summarize_event(choices[selected])
+                if out.get("ok") and out.get("data"):
+                    st.json(out["data"])
+                    st.caption(f"模型：{out.get('model') or out.get('provider')}")
+                else:
+                    for w in out.get("warnings", []):
+                        st.warning(w)
+                    st.info("当前为离线/未配置状态，未生成 AI 摘要；请配置 Key 后重试。")
+        else:
+            st.info("暂无事件可摘要。")
     with tabs[1]:
         st.caption(
             "巡检产出原始信号 → 勾选要入库的信号 → AI 结构化（离线时自动降级为规则抽取）"

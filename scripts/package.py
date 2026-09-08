@@ -24,6 +24,7 @@ EXTRA_PATHS = [
     "AGENTS.md",
     "requirements.txt",
     ".env.example",
+    ".streamlit",
     "app.py",
     "chainshield",
     "scripts",

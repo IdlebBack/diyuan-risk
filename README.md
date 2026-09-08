@@ -28,6 +28,7 @@
 - [x] 信号 → 结构化事件 → 本地事件库导入，语义去重（`chainshield/ingest.py`）
 - [x] Streamlit 可视化骨架（`app.py`）
 - [x] UI 信号巡检与导入工作台 + 命令行导入工具（`scripts/ingest_cli.py`）
+- [x] UI：AI 事件摘要（实验）——单条事件生成“事实/推断/待核实”摘要；无 Key 时离线提示
 - [x] UI：暴露度权重调节 + 敏感性/校验面板；推演页拆分单依赖/多依赖并行/方案比较
 - [x] 案例测试与边界案例演示：案例 A–D 口径定稿与自动化回归
       （`scripts/cases.py`；上游不明/低置信度事件均不产生确定结论）
@@ -38,6 +39,7 @@
 - [x] Streamlit 新增“6 案例与边界演示”页
 - [x] 测试与迭代记录：`docs/test_cases.md`、`docs/iteration_log.md`
 - [x] 打包脚本与提交包（`scripts/package.py`，产物在本地 `dist/`）
+- [x] 在线部署配置（`.streamlit/config.toml`；实际部署见下方步骤）
 - [x] 产品介绍 PPT 大纲（`docs/产品介绍PPT_大纲.md`）
 - [x] 产品介绍 PPT 成品（西北民族大学：陈冶希、李宇欣；成品 `docs/地缘风险_产品介绍PPT_20260908.pptx`）
 
@@ -78,6 +80,20 @@ streamlit run app.py
 ```bash
 python scripts/demo.py
 ```
+
+## 在线部署（Streamlit Community Cloud，可选但推荐）
+
+仓库已带 `.streamlit/config.toml`，可直接一键部署：
+
+1. 在 [Streamlit Community Cloud](https://streamlit.io/cloud) 用 GitHub 登录；
+2. “New app” → 选择仓库 `IdlebBack/diyuan-risk` → Branch `main` →
+   Main file `app.py`；
+3. 部署成功后，把公开 URL 填入“成果交付清单”的可运行产品系统；
+4. 如需真实 LLM：在应用 Settings → Secrets 中配置
+   `OPENAI_API_KEY=...`（不写入仓库；无 Key 时自动离线占位）。
+
+> 若你的网络无法访问 Google News/OpenAI，线上部署在美国区节点通常可正常访问；
+> 本地无外网时系统仍能运行模拟样例。
 
 案例 A–D 自动化回归（断供点、订单影响、上游信息缺失、待核实事件）：
 

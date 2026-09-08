@@ -20,11 +20,11 @@
     },
     {
       "id": "google-news",
-      "name": "Google News 检索（示例，未启用）",
+      "name": "Google News 检索：日本精密零部件出口审查",
       "url": "https://news.google.com/rss/search?q=%E6%97%A5%E6%9C%AC%20%E7%B2%BE%E5%AF%86%E9%9B%B6%E9%83%A8%E4%BB%B6%20%E5%87%BA%E5%8F%A3%E5%AE%A1%E6%9F%A5&hl=zh-CN&gl=CN&ceid=CN:zh-Hans",
       "country_hint": "日本",
       "keywords": [],
-      "enabled": false
+      "enabled": true
     }
   ]
 }
