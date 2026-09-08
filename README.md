@@ -37,7 +37,16 @@
       仅作为“假设分析”
 - [x] Streamlit 新增“6 案例与边界演示”页
 - [x] 测试与迭代记录：`docs/test_cases.md`、`docs/iteration_log.md`
-- [ ] 产品介绍 PPT、README 最终完善、打包提交
+- [x] 打包脚本与提交包（`scripts/package.py`，产物在本地 `dist/`）
+- [x] 产品介绍 PPT 大纲（`docs/产品介绍PPT_大纲.md`）
+- [ ] 产品介绍 PPT 成品（待确认学校/成员信息后生成）
+
+## 成果交付清单（2026-10-19 17:00 前提交 risk_a_lab@126.com）
+
+- [ ] 产品介绍 PPT（约 15 页，≤20 页；大纲见 `docs/产品介绍PPT_大纲.md`）
+- [ ] 可运行产品系统（`streamlit run app.py`；如需在线部署再补充访问链接）
+- [ ] 源代码与运行说明（本仓库即代码包：README + requirements + .env.example；
+     提交前用 `python scripts/package.py` 生成 zip）
 
 ## 环境准备
 
@@ -88,6 +97,14 @@ python scripts/ingest_cli.py --samples
 # 抓取自定义 RSS 源并入库
 python scripts/ingest_cli.py --rss "https://example.com/feed.xml"
 ```
+
+生成赛道 B 成果提交包（zip）：
+
+```bash
+python scripts/package.py
+```
+
+产物位于 `dist/地缘风险_提交包_YYYYMMDD.zip`（dist/ 不随 git 提交）。
 
 本地导入的事件存放在 `data/events_live.csv`（已加入 .gitignore，不随仓库提交）。
 确定有价值的条目可人工整理后并入 `data/seed/events.csv` 再提交。

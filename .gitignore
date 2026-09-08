@@ -18,6 +18,7 @@ data/*.db
 data/events_live.csv
 *.log
 tmp/
+dist/
 
 # 操作系统 / 编辑器
 .DS_Store
