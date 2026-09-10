@@ -6,10 +6,34 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 
 import pandas as pd
 
 from .config import DATA_DIR
+
+# 同一 Streamlit 进程内各会话共享；写入另用原子替换，读取不会看到半份 CSV。
+EVENT_FILE_LOCK = RLock()
+EVENT_DEFAULTS = {
+    "event_id": "", "date": "", "title": "", "summary": "", "countries": "",
+    "severity": 2, "status": "verify", "source_kind": "inference", "source": "",
+    "confidence": "low", "related_dependencies": "", "effect_kind": "",
+    "effect_value": 0, "notes": "", "url": "", "published": "", "source_id": "",
+}
+EFFECT_KINDS = {"lead_time_increase", "transit_delay", "export_license", "supply_reduction_pct"}
+
+
+def read_event_csv(path: Path) -> pd.DataFrame:
+    """兼容旧表结构，保留自定义列和文本 NA；不改写磁盘上的原始数据。"""
+    with EVENT_FILE_LOCK:
+        try:
+            frame = pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False)
+        except pd.errors.EmptyDataError:
+            frame = pd.DataFrame()
+    for column, default in EVENT_DEFAULTS.items():
+        if column not in frame:
+            frame[column] = default
+    return frame
 
 
 class Repository:
@@ -43,14 +67,37 @@ class Repository:
 
     def _read_events(self) -> pd.DataFrame:
         """合并种子事件与本地导入事件（events_live.csv，可不存在）。"""
-        seed = self._load("events.csv")
+        seed = read_event_csv(self.data_dir / "events.csv")
         live_path = Path(self.data_dir).parent / "events_live.csv"
         if self.include_live and live_path.exists():
-            live = pd.read_csv(live_path, encoding="utf-8-sig")
+            live = read_event_csv(live_path)
             seed = pd.concat([seed, live], ignore_index=True)
-        return seed.drop_duplicates(subset=["event_id"], keep="last").reset_index(
-            drop=True
+        for column, default in EVENT_DEFAULTS.items():
+            seed[column] = seed[column].fillna(default)
+        for column, allowed, default in (
+            ("status", {"active", "verify"}, "verify"),
+            ("confidence", {"high", "medium", "low"}, "low"),
+            ("source_kind", {"fact", "inference", "rumor"}, "inference"),
+        ):
+            seed.loc[~seed[column].isin(allowed), column] = default
+        severity = pd.to_numeric(seed["severity"], errors="coerce").replace(
+            [float("inf"), float("-inf")], float("nan")
         )
+        seed["severity"] = severity.fillna(2).clip(1, 5).astype(int)
+        effects = pd.to_numeric(seed["effect_value"], errors="coerce").replace(
+            [float("inf"), float("-inf")], float("nan")
+        )
+        # 未知效果/无效数值不能进入推演引擎的“按严重度猜测供应损失”分支。
+        invalid_effect = ~seed["effect_kind"].isin(EFFECT_KINDS) | effects.isna()
+        seed["effect_value"] = effects.fillna(0).clip(0, 1000)
+        pct = seed["effect_kind"].eq("supply_reduction_pct")
+        seed.loc[pct, "effect_value"] = seed.loc[pct, "effect_value"].clip(upper=100)
+        seed.loc[invalid_effect, "effect_kind"] = ""
+        seed.loc[invalid_effect, "effect_value"] = 0
+        # 旧 CSV 中缺失 ID 的不同事件不可因为空 ID 而被一并丢弃。
+        seed["event_id"] = seed["event_id"].astype(str)
+        keep = seed["event_id"].eq("") | ~seed.duplicated(subset=["event_id"], keep="last")
+        return seed.loc[keep].reset_index(drop=True)
 
     def reload_events(self) -> None:
         """导入新事件后调用，刷新内存中的事件表。"""
@@ -84,8 +131,10 @@ class Repository:
     def events_for_dependency(self, dependency_id: str) -> pd.DataFrame:
         """某依赖关联的风险事件（按日期倒序）。"""
         rel = self.events[
-            self.events["related_dependencies"].str.contains(
-                dependency_id, na=False
+            self.events["related_dependencies"].map(
+                lambda value: dependency_id in {
+                    token.strip() for token in str(value).split(";") if token.strip()
+                }
             )
         ]
         return rel.sort_values("date", ascending=False)

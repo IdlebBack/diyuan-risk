@@ -10,7 +10,7 @@
 > 模拟企业 XX 智能装备有限公司及其全部经营数据、业务关系、风险事件均为赛题虚构，
 > 不对应任何现实企业或实际商业事实。
 
-## 当前状态（里程碑 5：提交材料整理）
+## 当前状态（里程碑 6：稳定性与可复现性优化）
 
 - [x] Git 仓库与项目结构
 - [x] 模拟企业种子数据（组件、供应商、依赖、订单、风险事件）
@@ -31,6 +31,12 @@
 - [x] UI：AI 事件摘要（实验）——单条事件生成“事实/推断/待核实”摘要；无 Key 时离线提示
 - [x] UI：推演结果“AI 解读（实验）”——单依赖与多依赖并行推演后可生成
       解读、行动注意事项与参数校准提醒；需人工复核
+- [x] AI 请求失败分级提示、超时/重试/输出长度配置；失败不影响确定性推演
+- [x] AI 解读结果按推演输入快照缓存；支持下载确定性推演报告（Markdown）
+- [x] 默认固定种子数据模式；本地导入事件需侧栏显式开启，案例页始终隔离
+- [x] 新导入事件强制进入待核实池；来源 URL、发布时间与来源 ID 不由模型覆盖
+- [x] 推演区分“库存归零”与“首次当周缺口”，新增 6 项离线单元测试
+- [x] GitHub Actions 离线检查：单元测试、案例回归、冒烟演示（Python 3.11/3.12）
 - [x] UI：暴露度权重调节 + 敏感性/校验面板；推演页拆分单依赖/多依赖并行/方案比较
 - [x] 案例测试与边界案例演示：案例 A–D 口径定稿与自动化回归
       （`scripts/cases.py`；上游不明/低置信度事件均不产生确定结论）
@@ -49,8 +55,11 @@
 
 - [x] 产品介绍 PPT（16 页成品 `docs/地缘风险_产品介绍PPT_20260908.pptx`；大纲见 `docs/产品介绍PPT_大纲.md`）
 - [ ] 可运行产品系统（`streamlit run app.py`；如需在线部署再补充访问链接）
-- [ ] 源代码与运行说明（本仓库即代码包：README + requirements + .env.example；
+- [x] 源代码与运行说明（本仓库即代码包：README + requirements + .env.example；
      提交前用 `python scripts/package.py` 生成 zip）
+
+> 运行验收推荐：默认不勾选“叠加本地导入事件”，先用固定种子数据复现案例；
+> 真实 RSS/AI 导入事件必须经过人工核实，不能因为模型返回 `active` 就直接进入确定性结论。
 
 ## 环境准备
 
@@ -103,6 +112,12 @@ python scripts/demo.py
 python scripts/cases.py
 ```
 
+离线单元测试：
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 命令行导入风险信号到本地事件库（`data/events_live.csv`，按“标题+日期”去重）：
 
 ```bash
@@ -139,6 +154,7 @@ chainshield/
 │  ├─ scenario.py         # 情景推演引擎
 │  ├─ events.py           # 风险事件库
 │  ├─ llm.py              # LLM 接口（含离线占位）
+│  ├─ reporting.py        # 可复现推演快照与 Markdown 报告
 │  └─ config.py           # 环境配置
 ├─ data/seed/             # 种子数据（CSV，全部虚构）
 ├─ docs/
@@ -146,8 +162,11 @@ chainshield/
 │  ├─ 产品设计方案.md      # 产品设计
 │  ├─ test_cases.md       # 案例验收与测试基线
 │  └─ iteration_log.md    # 迭代日志
-├─ scripts/demo.py        # 冒烟演示
-└─ scripts/cases.py       # 案例 A–D 自动化回归
+├─ scripts/
+│  ├─ demo.py             # 冒烟演示
+│  └─ cases.py            # 案例 A–D 自动化回归
+├─ tests/test_core.py     # 离线单元测试
+└─ .github/workflows/tests.yml # GitHub Actions 离线检查
 ```
 
 ## 两人协作与 Git 工作流

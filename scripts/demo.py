@@ -21,7 +21,8 @@ from chainshield.scenario import ScenarioParams, run_scenario
 
 def main() -> None:
     print(f"项目根目录：{ROOT}")
-    repo = Repository()
+    # 冒烟演示固定使用种子事件；本地 RSS 导入需在应用中显式开启，避免结果随机器状态漂移。
+    repo = Repository(include_live=False)
     print(f"数据装载完成：{repo.summary()}")
 
     G = build_graph(repo)

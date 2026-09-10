@@ -73,8 +73,8 @@ def main() -> None:
         check("案例A：新交期升至 20 周", pa.new_lead_weeks == 20.0, f"lead={pa.new_lead_weeks}")
         res_a = run_scenario(repo, pa)
         check(
-            "案例A：断供点可推演（第 17 周）",
-            res_a.runout_week == 17.0,
+            "案例A：首个当周缺口可推演（第 18 周）",
+            res_a.runout_week == 18.0,
             f"runout={res_a.runout_week}",
         )
         n_a = int((res_a.order_impact["状态"] == "受影响·需协调").sum())
@@ -101,7 +101,7 @@ def main() -> None:
         check("案例B：在途延误 4 周", pb.pipeline_delay_weeks == 4.0, f"delay={pb.pipeline_delay_weeks}")
         check("案例B：新交期升至 20 周", pb.new_lead_weeks == 20.0, f"lead={pb.new_lead_weeks}")
         res_b = run_scenario(repo, pb)
-        check("案例B：断供点可推演（第 17 周）", res_b.runout_week == 17.0, f"runout={res_b.runout_week}")
+        check("案例B：首个当周缺口可推演（第 17 周）", res_b.runout_week == 17.0, f"runout={res_b.runout_week}")
         n_b = int((res_b.order_impact["状态"] == "受影响·需协调").sum())
         check("案例B：现有订单均不受影响（推荐口径）", n_b == 0, f"n_affected={n_b}")
 

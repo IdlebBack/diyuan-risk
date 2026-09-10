@@ -5,20 +5,22 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
-from chainshield.config import OPENAI_API_KEY
 from chainshield.events import active_events, pending_verification
 from chainshield.graph import concentration_metrics, draw_graph
 from chainshield.ingest import run_signal_pipeline, save_events
 from chainshield.llm import (
     extract_risk_event,
-    get_llm,
+    llm_status,
     interpret_scenario,
     summarize_event,
 )
 from chainshield.repository import Repository
+from chainshield.reporting import fingerprint, scenario_context, scenario_report
 from chainshield.risk import WEIGHTS, exposure_report, normalize_weights
 from chainshield.scenario import (
     ScenarioParams,
@@ -34,13 +36,6 @@ from chainshield.validation import case_checks, sensitivity_report
 st.set_page_config(page_title="地缘风险", page_icon="🛡️", layout="wide")
 
 
-@st.cache_resource
-def get_repo() -> Repository:
-    return Repository()
-
-
-repo = get_repo()
-
 st.sidebar.title("🛡️ 地缘风险")
 st.sidebar.caption("供应链地缘风险雷达 · 赛道 B")
 page = st.sidebar.radio(
@@ -55,21 +50,55 @@ page = st.sidebar.radio(
     ],
 )
 
-llm = get_llm()
-api_ready = bool(OPENAI_API_KEY)
+use_live = st.sidebar.toggle("叠加本地导入事件", value=False, key="use_live")
+st.sidebar.caption("默认使用固定模拟数据；案例页始终隔离导入事件，保证验收可复现。")
+# 小型 CSV 每次重读，避免多个浏览器会话共享可变缓存或读到旧事件。
+repo = Repository(include_live=use_live)
+status = llm_status()
+api_ready = status["configured"]
 st.sidebar.divider()
-st.sidebar.markdown(f"**AI 状态**：{'在线（已配置 Key）' if api_ready else '离线占位'}")
-st.sidebar.caption("未配置 Key 时，风险事件 AI 抽取返回占位结果；其余功能全部可用。")
+ai_status_slot = st.sidebar.empty()
+st.sidebar.caption(f"{status['provider']} · {status['model']}；只在点击生成时调用。")
+
+
+def _show_ai_status() -> None:
+    last = st.session_state.get("llm_last_call")
+    label = "已配置，尚未验证" if api_ready else "离线（未配置 Key）"
+    if api_ready and last:
+        label = ("最近一次调用成功" if last["ok"] else "最近一次调用失败，可重试") + f" · {last['time']}"
+    ai_status_slot.caption(f"AI 状态：{label}")
+
+
+def _record_ai_call(out: dict) -> None:
+    st.session_state["llm_last_call"] = {"ok": bool(out.get("ok")), "time": datetime.now().strftime("%H:%M:%S")}
+    _show_ai_status()
+
+
+_show_ai_status()
 
 
 def page_overview() -> None:
     st.title("企业供应链地缘风险总览")
     st.caption("数据场景：赛题虚构的 XX 智能装备有限公司（高端智能装备制造）")
+    st.info("建议验收路线：先看依赖图谱 → 调整暴露度权重 → 比较断供情景 → 用案例页检查边界。")
+    if use_live:
+        st.warning("已叠加本地导入事件。公开信息的抓取成功不等于核实成功，也不证明与模拟供应商存在真实关联。")
+    else:
+        st.caption("当前为固定模拟数据模式。真实信号可在第 5 页查看，不会自动混入此处结论。")
 
     s = repo.summary()
     cols = st.columns(len(s))
     for col, (k, v) in zip(cols, s.items()):
         col.metric(k, v)
+
+    exposure = exposure_report(repo)
+    top = exposure.iloc[0]
+    with st.container(border=True):
+        st.subheader(f"优先检查：{top['组件']}")
+        st.write(f"综合暴露度 {top['综合暴露度']:.1f} / 100 · {top['风险等级']}；主要风险因子：{top['主要风险因子']}")
+        if top["不确定性提示"]:
+            st.warning(top["不确定性提示"])
+        st.caption("分数用于比较依赖，不是断供概率；默认权重为主观场景设定。")
 
     st.subheader("进口依赖关系")
     detail = repo.dependency_detail().rename(
@@ -129,6 +158,8 @@ def page_graph() -> None:
     with col1:
         fig = draw_graph(repo)
         st.pyplot(fig)
+        import matplotlib.pyplot as plt
+        plt.close(fig)
     with col2:
         st.subheader("进口集中度")
         df = pd.DataFrame(concentration_metrics(repo))
@@ -166,6 +197,8 @@ def page_exposure() -> None:
             ),
         }
     weights = normalize_weights({k: v / 100.0 for k, v in raw.items()})
+    if sum(raw.values()) == 0:
+        st.warning("权重不能全部为 0；已恢复默认权重，避免错误显示所有依赖都无风险。")
     st.caption(
         "当前实际权重："
         + " + ".join(
@@ -182,6 +215,9 @@ def page_exposure() -> None:
 
     df = exposure_report(repo, weights)
     st.dataframe(df, width="stretch", hide_index=True)
+    st.download_button("下载暴露度明细 CSV", df.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="地缘风险_暴露度.csv", mime="text/csv", key="download_exposure")
+    st.caption("权重为模拟场景主观设定；敏感性检查只覆盖逐因子 ±30% 的局部扰动，不是准确性验证。")
 
     st.subheader("综合暴露度排序")
     st.bar_chart(df.set_index("组件")["综合暴露度"])
@@ -193,7 +229,7 @@ def page_exposure() -> None:
         top_dep = sens.attrs.get("top_dependency", "最高风险依赖")
         if stable is not None:
             st.success(f"最高风险依赖（{top_dep}）在所有扰动下保持第一，"
-                       "当前结论对权重不敏感；波动幅度见上表。"
+                       "仅限本次局部扰动范围；波动幅度见上表。"
                        if stable else
                        "注意：最高风险依赖在部分扰动下会变化，解读时需谨慎。")
 
@@ -202,12 +238,8 @@ def page_exposure() -> None:
             icon = "✅" if item["通过"] else "❌"
             st.markdown(f"{icon} **{item['案例']}** — {item['说明']}")
 
-    st.markdown(
-        """
-**当前结论（示例）**：芯片依赖（DEP-02）因高集中度、上游信息缺失且事件活跃，暴露度最高；
-编码器（DEP-01）因日本出口审查事件强度大而紧随其后。
-"""
-    )
+    top = df.iloc[0]
+    st.info(f"当前权重下优先检查 {top['依赖编号']}（{top['组件']}），暴露度 {top['综合暴露度']:.1f}。")
 
 
 def page_scenario() -> None:
@@ -357,12 +389,17 @@ def _render_single_result(result, interpret_key: str = "single_interpret") -> No
     for w in result.warnings:
         st.warning(w)
 
-    context_lines = list(result.messages)
-    context_lines.extend(result.warnings)
     _render_ai_interpretation(
         key=interpret_key,
-        context="\n".join(context_lines),
-        caption="解读仅基于上述确定性推演，不构成最终决策建议。",
+        context=scenario_context(result),
+        caption="解读仅基于上述确定性推演，不构成最终决策建议。参数和证据仍需人工复核。",
+    )
+    st.download_button(
+        "下载本次推演报告",
+        scenario_report(result),
+        file_name=f"地缘风险_{result.params.dependency_id}_推演报告.md",
+        mime="text/markdown",
+        key=f"{interpret_key}_report",
     )
 
     colA, colB = st.columns(2)
@@ -385,6 +422,13 @@ def _render_ai_interpretation(key: str, context: str, caption: str) -> None:
         if st.button("生成解读与行动注意事项", key=key):
             with st.spinner("调用 AI 解读中…"):
                 out = interpret_scenario(context)
+            _record_ai_call(out)
+            st.session_state[f"ai_result_{key}"] = {
+                "fingerprint": fingerprint(context), "output": out,
+            }
+        cached = st.session_state.get(f"ai_result_{key}")
+        if cached and cached.get("fingerprint") == fingerprint(context):
+            out = cached["output"]
             if out.get("ok") and out.get("data"):
                 data = out["data"]
                 if data.get("summary"):
@@ -433,6 +477,7 @@ def page_events() -> None:
             if st.button("生成事件摘要", type="secondary"):
                 with st.spinner("调用 AI 摘要中…"):
                     out = summarize_event(choices[selected])
+                _record_ai_call(out)
                 if out.get("ok") and out.get("data"):
                     st.json(out["data"])
                     st.caption(f"模型：{out.get('model') or out.get('provider')}")
@@ -532,6 +577,7 @@ def page_events() -> None:
         if st.button("抽取风险事件"):
             with st.spinner("调用 AI 抽取中…"):
                 out = extract_risk_event(sample)
+            _record_ai_call(out)
             st.json(out)
             for w in out.get("warnings", []):
                 st.warning(w)
@@ -542,6 +588,7 @@ def page_events() -> None:
 
 def page_cases() -> None:
     st.title("案例与边界演示（里程碑 4）")
+    case_repo = Repository(include_live=False)
     st.caption(
         "推荐口径：不改动赛题“三批订单”设定；案例 A/B 重点展示断供点预警、"
         "断供后新增订单无缓冲与应对方案比较；案例 C/D 展示上游信息缺失与低置信度事件的处理。"
@@ -550,7 +597,7 @@ def page_cases() -> None:
     with st.expander("案例 A：日本编码器出口审查 → 断供点预警", expanded=True):
         st.markdown(
             "**背景**：EVT-01 后编码器新交期升至约 20 周。悲观假设下完全断供，"
-            "推演 DEP-01 的库存消耗与订单影响。"
+            "推演 DEP-01 的库存消耗与订单影响；案例页固定使用种子数据，保证复现。"
         )
         a_params = ScenarioParams(
             dependency_id="DEP-01",
@@ -558,15 +605,15 @@ def page_cases() -> None:
             new_lead_weeks=20.0,
         )
         _render_single_result(
-            run_scenario(repo, a_params), interpret_key="case_a_interpret"
+            run_scenario(case_repo, a_params), interpret_key="case_a_interpret"
         )
         st.info(
             "解读：现有三批订单（第 8/12/16 周交付）均在断供前完成；"
-            "真正的风险在第 17 周之后的新增订单——届时库存已耗尽、新订单 20 周交期无法补上。"
+            "真正的风险在第 18 周开始的新增订单——第 17 周刚好用完库存，随后新订单 20 周交期无法及时补上。"
         )
         st.markdown("**应对方案比较（悲观假设）**")
         st.dataframe(
-            compare_plans(repo, a_params),
+            compare_plans(case_repo, a_params),
             width="stretch",
             hide_index=True,
         )
@@ -576,10 +623,10 @@ def page_cases() -> None:
             "**背景**：EVT-02 后经新加坡转运的芯片在途订单整体延后 4 周，"
             "新交期升至约 20 周，推演 DEP-02。"
         )
-        b_shocks = shocks_from_events(repo, ["EVT-02"])
+        b_shocks = shocks_from_events(case_repo, ["EVT-02"])
         if b_shocks:
             _render_single_result(
-                run_scenario(repo, b_shocks[0]), interpret_key="case_b_interpret"
+                run_scenario(case_repo, b_shocks[0]), interpret_key="case_b_interpret"
             )
             st.info(
                 "解读：在途延误已被计入推演（两批在途订单延后 4 周到货）；"
@@ -594,7 +641,7 @@ def page_cases() -> None:
             "**背景**：DEP-02 经新加坡经销商采购，上游原厂与授权关系不明"
             "（`upstream_known=0`）。系统应量化信息缺口并给出行动建议，而非猜测上游事实。"
         )
-        exp = exposure_report(repo)
+        exp = exposure_report(case_repo)
         dep02 = exp[exp["依赖编号"] == "DEP-02"].iloc[0]
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("信息可见性风险", f"{dep02['信息可见性风险']:.0f}")
@@ -628,7 +675,7 @@ def page_cases() -> None:
             "**背景**：EVT-03 为外媒传闻、置信度低、处于 verify 状态。"
             "系统不把它当作事实：默认不参与暴露度评分与多依赖并行推演。"
         )
-        pend = pending_verification(repo)
+        pend = pending_verification(case_repo)
         if len(pend):
             st.dataframe(
                 pend[
@@ -651,7 +698,7 @@ def page_cases() -> None:
             "多依赖并行推演中若勾选待核实事件，系统会自动忽略并提示。"
         )
         if st.button("查看 EVT-03 若强行作为‘假设分析’的参数", key="case_d_hyp"):
-            hyp = shocks_from_events(repo, ["EVT-03"], include_pending=True)
+            hyp = shocks_from_events(case_repo, ["EVT-03"], include_pending=True)
             if hyp:
                 st.caption(
                     "以下仅作假设分析，不构成结论：待核实事件按保守规则折算为"

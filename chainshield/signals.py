@@ -11,13 +11,37 @@ from __future__ import annotations
 import json
 import logging
 import urllib.request
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .config import ROOT
 
 logger = logging.getLogger(__name__)
+
+
+def parse_published_date(value: object) -> str:
+    """解析 RSS 的 RFC 2822 / Atom 的 ISO 日期；未知日期返回空串。
+
+    保留来源时区下的日历日期，原始完整发布时间仍存于 Signal.published。
+    """
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    text = value.strip()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        pass
+    try:
+        return parsedate_to_datetime(text).date().isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return ""
+
+
+def _text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 @dataclass
@@ -108,11 +132,19 @@ class RSSSignalSource:
         self.url = url
         self.name = name or url
         self.country_hint = country_hint
-        self.keywords = keywords or []
-        self.max_items = max_items
+        self.keywords = [_text(k) for k in (keywords or []) if _text(k)]
+        try:
+            self.max_items = max(1, min(100, int(max_items)))
+        except (TypeError, ValueError, OverflowError):
+            self.max_items = 10
 
     def fetch(self, timeout: int = 20) -> list[Signal]:
-        if not self.url:
+        # 界面临时输入也只能读取 HTTP(S)，不能把 file:/data: 当成 RSS 读取。
+        try:
+            valid_url = urlsplit(self.url).scheme.lower() in {"http", "https"}
+        except (TypeError, ValueError):
+            valid_url = False
+        if not valid_url:
             return []
         try:
             req = urllib.request.Request(
@@ -120,18 +152,29 @@ class RSSSignalSource:
                 headers={"User-Agent": "DiyuanRisk/0.2 (+competition demo)"},
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
+                max_bytes = 2 * 1024 * 1024
+                raw = resp.read(max_bytes + 1)
+                if len(raw) > max_bytes:
+                    logger.warning("RSS 内容过大，已跳过该源")
+                    return []
         except Exception as exc:  # 网络/证书/超时等，全部降级为空
             logger.warning("RSS 抓取失败 %s: %s", self.url, exc)
             return []
 
         import feedparser
 
-        parsed = feedparser.parse(raw)
+        try:
+            parsed = feedparser.parse(raw)
+        except Exception:
+            logger.warning("RSS 内容无法解析，已跳过该源")
+            return []
         signals: list[Signal] = []
-        for entry in parsed.entries[: self.max_items]:
-            title = (entry.get("title") or "").strip()
-            summary = (
+        seen: set[tuple[str, str]] = set()
+        for entry in parsed.entries:
+            title = _text(entry.get("title"))
+            if not title:
+                continue
+            summary = _text(
                 entry.get("summary")
                 or entry.get("description")
                 or entry.get("subtitle")
@@ -140,17 +183,25 @@ class RSSSignalSource:
             text = f"{title}\n{summary}".lower()
             if self.keywords and not any(k.lower() in text for k in self.keywords):
                 continue
+            url = _text(entry.get("link"))
+            published = _text(entry.get("published")) or _text(entry.get("updated"))
+            key = (url, "") if url else (title, published)
+            if key in seen:
+                continue
+            seen.add(key)
             signals.append(
                 Signal(
-                    source_id=entry.get("id") or entry.get("link") or title,
+                    source_id=_text(entry.get("id")) or url or title,
                     source=self.name,
                     title=title,
                     summary=summary,
-                    url=entry.get("link") or "",
-                    published=entry.get("published") or entry.get("updated") or "",
+                    url=url,
+                    published=published,
                     country_hint=self.country_hint,
                 )
             )
+            if len(signals) >= self.max_items:
+                break
         return signals
 
 
@@ -158,6 +209,8 @@ def load_feeds(cfg_path: Path | str | None = None) -> dict:
     cfg_path = Path(cfg_path) if cfg_path else ROOT / "data" / "sources.json"
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("feeds", []), list):
+        raise ValueError("RSS 配置须为对象，feeds 须为列表")
     cfg.setdefault("include_samples", True)
     cfg.setdefault("feeds", [])
     return cfg
@@ -174,13 +227,17 @@ def fetch_signals(
     """
     signals: list[Signal] = []
     warnings: list[str] = []
-    cfg = load_feeds(cfg_path)
+    try:
+        cfg = load_feeds(cfg_path)
+    except (OSError, ValueError):
+        cfg = {"include_samples": True, "feeds": []}
+        warnings.append("RSS 源配置无法读取，已跳过配置源；仍可使用模拟样例或自定义源")
 
     if include_samples and cfg.get("include_samples", True):
         signals.extend(SampleSignalSource().fetch())
 
     for feed in cfg.get("feeds", []):
-        if not feed.get("enabled") or not feed.get("url"):
+        if not isinstance(feed, dict) or not feed.get("enabled") or not _text(feed.get("url")):
             continue
         src = RSSSignalSource(
             url=feed["url"],

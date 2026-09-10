@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import math
 
 from .repository import Repository
 
@@ -35,9 +36,31 @@ WEIGHTS = {
 SAFE_INVENTORY_WEEKS = 24.0  # 库存 ≥24 周视为缓冲充分
 
 
+def confirmed_event_mask(events: pd.DataFrame) -> pd.Series:
+    """仅把来源为事实且达到最低置信度的 active 事件用于确定性结论。
+
+    这不是事实真实性证明；它只是把 verify、rumor、inference 和 low
+    confidence 隔离出默认评分/推演，避免“active”字段被误当成人工核验。
+    """
+    if events is None or len(events) == 0:
+        return pd.Series(dtype=bool, index=getattr(events, "index", None))
+    status = events.get("status", pd.Series("", index=events.index)).astype(str).str.lower()
+    source = events.get("source_kind", pd.Series("", index=events.index)).astype(str).str.lower()
+    confidence = events.get("confidence", pd.Series("", index=events.index)).astype(str).str.lower()
+    return status.eq("active") & source.eq("fact") & confidence.isin(["high", "medium"])
+
+
 def normalize_weights(weights: dict) -> dict:
     """把任意权重组归一化为合计 1；空/非法值回落到默认。"""
-    w = {k: max(0.0, float(weights.get(k, WEIGHTS[k]))) for k in WEIGHTS}
+    safe = weights if isinstance(weights, dict) else {}
+    values = {}
+    for key, default in WEIGHTS.items():
+        try:
+            value = float(safe.get(key, default))
+        except (TypeError, ValueError, OverflowError):
+            value = default
+        values[key] = value if math.isfinite(value) else default
+    w = {k: max(0.0, values[k]) for k in WEIGHTS}
     total = sum(w.values()) or 1.0
     return {k: round(v / total, 4) for k, v in w.items()}
 
@@ -46,7 +69,13 @@ def event_score(severities: list[int]) -> float:
     """活跃事件叠加强度（0–100）。"""
     remain = 1.0
     for sev in severities:
-        remain *= 1.0 - max(1, min(5, int(sev))) / 5.0
+        try:
+            value = float(sev)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(value):
+            continue
+        remain *= 1.0 - max(1, min(5, int(value))) / 5.0
     return round(100.0 * (1.0 - remain), 1)
 
 
@@ -69,7 +98,7 @@ def factor_scores(repo: Repository, dependency_id: str) -> dict:
     detail = repo.dependency_detail()
     dep = detail[detail["dependency_id"] == dependency_id].iloc[0]
     events = repo.events_for_dependency(dependency_id)
-    active = events[events["status"] == "active"]
+    active = events[confirmed_event_mask(events)]
     sevs = [int(x) for x in active["severity"] if pd.notna(x)] if len(active) else []
     return {
         "集中度风险": round(float(dep["purchase_share"]) * 100, 1),
@@ -88,7 +117,7 @@ def exposure_report(repo: Repository, weights: dict | None = None) -> pd.DataFra
         dep_id = dep["dependency_id"]
         factors = factor_scores(repo, dep_id)
         rel_events = repo.events_for_dependency(dep_id)
-        verify_count = int((rel_events["status"] == "verify").sum())
+        verify_count = int((~confirmed_event_mask(rel_events)).sum())
         upstream_known = int(dep["upstream_known"]) == 1
         notes = []
         if not upstream_known:
