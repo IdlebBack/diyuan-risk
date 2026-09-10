@@ -7,7 +7,9 @@ from pathlib import Path
 import pandas as pd
 
 from chainshield.ingest import normalize_event, save_events
+from chainshield import llm
 from chainshield.repository import Repository
+from chainshield.reporting import scenario_report
 from chainshield.risk import confirmed_event_mask, normalize_weights
 from chainshield.scenario import run_scenario, shocks_from_events, ScenarioParams
 
@@ -77,6 +79,49 @@ class WeightTests(unittest.TestCase):
         weights = normalize_weights({"event": "not-a-number", "buffer": float("nan")})
         self.assertAlmostEqual(sum(weights.values()), 1.0, places=3)
         self.assertGreaterEqual(min(weights.values()), 0)
+
+
+class LlmSafetyTests(unittest.TestCase):
+    def test_timeout_is_converted_to_safe_result_without_exception(self) -> None:
+        original = llm.get_llm
+
+        class Boom:
+            name = "deepseek"
+
+            def chat(self, *args, **kwargs):
+                raise TimeoutError("private detail must not be shown")
+
+        llm.get_llm = lambda: Boom()
+        try:
+            result = llm.interpret_scenario("simulated result")
+        finally:
+            llm.get_llm = original
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_code"], "timeout")
+        self.assertNotIn("private detail", " ".join(result["warnings"]))
+
+    def test_invalid_base_url_does_not_break_status(self) -> None:
+        original = llm.config.OPENAI_BASE_URL
+        llm.config.OPENAI_BASE_URL = "http://[broken"
+        try:
+            self.assertEqual(llm.provider_name(), "openai-compatible")
+        finally:
+            llm.config.OPENAI_BASE_URL = original
+
+
+class ReportingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.repo = Repository(include_live=False)
+
+    def test_report_contains_reproducible_snapshot(self) -> None:
+        from chainshield.scenario import ScenarioParams, run_scenario
+
+        result = run_scenario(self.repo, ScenarioParams("DEP-01", 100, 20))
+        report = scenario_report(result)
+        self.assertIn("输入参数与结果快照", report)
+        self.assertIn("逐周结果（CSV）", report)
+        self.assertIn("DEP-01", report)
 
 
 if __name__ == "__main__":

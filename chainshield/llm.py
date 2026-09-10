@@ -76,7 +76,10 @@ class OpenAILlm(BaseLlm):
 
 
 def provider_name() -> str:
-    host = urlsplit(config.OPENAI_BASE_URL).hostname or ""
+    try:
+        host = urlsplit(config.OPENAI_BASE_URL).hostname or ""
+    except ValueError:
+        return "openai-compatible"
     if host == "api.deepseek.com":
         return "deepseek"
     if host == "api.openai.com":
@@ -287,7 +290,7 @@ def summarize_event(row: dict) -> dict:
         ("facts", "inferences", "to_verify"),
     )
     result["source"] = str(row.get("source") or "未知来源")
-    result["source_url"] = str(row.get("source_url") or "")
+    result["source_url"] = str(row.get("source_url") or row.get("url") or "")
     result["confidence"] = str(row.get("confidence") or "low")
     return result
 

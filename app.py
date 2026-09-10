@@ -91,6 +91,13 @@ def page_overview() -> None:
     for col, (k, v) in zip(cols, s.items()):
         col.metric(k, v)
 
+    active_count = len(active_events(repo))
+    pending_count = len(pending_verification(repo))
+    st.caption(
+        f"事件口径：{active_count} 条已确认（fact + high/medium）进入默认评分；"
+        f"{pending_count} 条待核实/低置信度事件仅作提示。"
+    )
+
     exposure = exposure_report(repo)
     top = exposure.iloc[0]
     with st.container(border=True):
@@ -481,6 +488,8 @@ def page_events() -> None:
                 if out.get("ok") and out.get("data"):
                     st.json(out["data"])
                     st.caption(f"模型：{out.get('model') or out.get('provider')}")
+                    if out.get("source_url"):
+                        st.caption(f"来源链接：{out['source_url']}")
                 else:
                     for w in out.get("warnings", []):
                         st.warning(w)

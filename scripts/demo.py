@@ -42,7 +42,7 @@ def main() -> None:
         ].to_string(index=False)
     )
 
-    print("\n情景推演：DEP-01（日本编码器）完全断供，新交期 24 周")
+    print("\n情景推演：DEP-01（日本编码器）完全断供，当前交期 20 周")
     result = run_scenario(
         repo, ScenarioParams(dependency_id="DEP-01", supply_reduction_pct=100.0)
     )
