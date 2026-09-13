@@ -42,10 +42,13 @@
 - `python -m unittest discover -s tests -v`：81 项，79 通过、2 项真实符号链接检查因权限跳过。
 - `python scripts/cases.py`：A–D 全部通过；`python scripts/demo.py`：通过。
 - `python -m compileall -q app.py chainshield scripts tests` 与 `git diff --check`：通过。
-- 图谱 PNG 已人工目检，右侧图例与订单节点分离，订单数量标签可辨认。
+- 图谱 PNG 已进行视觉核对，右侧图例与订单节点分离，订单数量标签可辨认。
 - `python scripts/package.py`：发布白名单/常见凭据扫描通过，47 个文件。
   在全新临时目录解压后复跑 81 项测试、案例和冒烟均通过；使用本机已安装依赖，
   不将此结果冒充“全新 Python 环境安装验证”。
+- 首次云端检查中 Ubuntu 3.11/3.12 通过；Windows 3.12 暴露同一临时目录的
+  8.3 短路径/长路径表示差异。打包失败清理测试改为比较实际文件身份，
+  避免将 `RUNNER~1` 与长用户名路径误判为不同文件，保留对残包数量和旧包内容的检查。
 
 ## 2026-09-10｜里程碑 6：稳定性、可信边界与可复现性优化
 

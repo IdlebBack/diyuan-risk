@@ -114,7 +114,7 @@ class PackageTests(unittest.TestCase):
         first = self.build()
         original_bytes = first.path.read_bytes()
         second = self.build()
-        self.assertNotEqual(first.path, second.path)
+        self.assertFalse(first.path.samefile(second.path))
         self.assertTrue(second.path.name.endswith("_02.zip"))
         self.assertEqual(first.path.read_bytes(), original_bytes)
         self.assertEqual(first.file_count, second.file_count)
@@ -216,7 +216,10 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.build()
         self.assertEqual(first.path.read_bytes(), original_bytes)
-        self.assertEqual(list((self.root / "dist").iterdir()), [first.path])
+        remaining = list((self.root / "dist").iterdir())
+        self.assertEqual(len(remaining), 1)
+        # Windows 临时目录可能同时使用 8.3 短路径与长路径，比较实际文件身份。
+        self.assertTrue(remaining[0].samefile(first.path))
 
     def test_package_writes_the_scanned_snapshot_not_later_file_changes(self) -> None:
         original_text = "print('safe scanned fixture')\n"
