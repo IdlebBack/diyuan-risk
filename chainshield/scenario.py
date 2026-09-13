@@ -218,7 +218,13 @@ def run_scenario(repo: Repository, params: ScenarioParams) -> ScenarioResult:
         return "交付周未见缺口"
 
     lines["状态"] = lines["due_weeks"].apply(delivery_status)
-    lines["建议"] = lines.apply(_suggest_order_action, axis=1)
+    # 空表上 apply(axis=1) 在部分 pandas 版本会返回 DataFrame，不能赋给单列。
+    # 即使尚无订单使用该组件，库存/供给推演仍应正常完成并保留输出列。
+    lines["建议"] = pd.Series(
+        [_suggest_order_action(row) for _, row in lines.iterrows()],
+        index=lines.index,
+        dtype="object",
+    )
     order_impact = lines[
         [
             "order_id",
@@ -317,7 +323,9 @@ def _build_messages(
         messages.append(f"在当前假设下，{horizon} 周窗口内未出现当周供给缺口")
         warnings.append("窗口内未见缺口不代表窗口外安全；结果仍取决于固定用量和到货假设")
     n_affected = int((order_impact["状态"] == "受影响·需协调").sum())
-    if n_affected:
+    if order_impact.empty:
+        messages.append("该组件暂无关联待交付订单；已完成库存与供给推演，订单影响未评估")
+    elif n_affected:
         messages.append(f"{n_affected} 个订单的交付周出现组件供给缺口，需提前协调")
     else:
         messages.append("已评估订单的交付周未见当周供给缺口，不构成实际交付保证")
@@ -366,6 +374,10 @@ def run_multi_scenario(
 def _summarize_order_impact(
     repo: Repository, results: list[ScenarioResult]
 ) -> pd.DataFrame:
+    columns = [
+        "order_id", "customer", "region", "due_weeks", "priority", "order_value_cny",
+        "关键组件", "状态", "受影响依赖", "建议",
+    ]
     parts = []
     for r in results:
         df = r.order_impact.copy()
@@ -376,7 +388,7 @@ def _summarize_order_impact(
         ]
         parts.append(df)
     if not parts:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=columns)
     raw = pd.concat(parts, ignore_index=True)
     recs = []
     for order_id, grp in raw.groupby("order_id"):
@@ -411,7 +423,7 @@ def _summarize_order_impact(
                 "建议": _suggest_order_action(pd.Series({"状态": status, "priority": first["priority"]})),
             }
         )
-    df = pd.DataFrame(recs)
+    df = pd.DataFrame(recs, columns=columns)
     return df.sort_values(["状态", "due_weeks"]).reset_index(drop=True)
 
 
@@ -450,8 +462,7 @@ def shocks_from_events(
             continue
         try:
             value = _number(ev.get("effect_value", 0), "effect_value")
-            if kind == "supply_reduction_pct" and value == 0:
-                value = _number(ev.get("severity"), "severity", minimum=1, maximum=5) * 15
+            # 明确的 0% 表示没有量化削减；不能由严重度凭空推定供应损失。
         except ValueError:
             # 数据有缺口时不能凭 NaN/负数生成冲击，留给人工核实。
             continue
@@ -473,6 +484,7 @@ def shocks_from_events(
             if kind == "lead_time_increase":
                 bucket["new_lead_weeks"] = max(
                     bucket["new_lead_weeks"] or 0,
+                    float(dep["current_lead_weeks"]),
                     float(dep["normal_lead_weeks"]) + value,
                 )
             elif kind == "transit_delay":
@@ -516,14 +528,24 @@ def compare_plans(
 ) -> pd.DataFrame:
     """比较应对方案：基准 / 加库存 / 替代供应 / 组合 / 排产协商（定性）。
 
-    成本为数量级示意：加库存按资金占用估算；替代供应按溢价与认证期估算。
+    加库存是在输入情景的既有额外库存上追加，成本只计新增资金占用。
+    替代供应行采用本方案的就绪周和完整产能，替换输入的替代供应参数；
+    其成本为该方案的溢价与认证成本示意，并非相对既有替代措施的差额。
     """
+    params = replace(params)
+    extra_weeks = _number(extra_weeks, "extra_weeks")
+    alt_premium_pct = _number(alt_premium_pct, "alt_premium_pct")
+    base = run_scenario(repo, params)
     detail = repo.dependency_detail().set_index("dependency_id")
     dep = detail.loc[params.dependency_id]
-    usage = float(dep["weekly_usage"])
-    unit = float(dep["unit_cost_cny"])
-    ready = float(dep["substitute_effort_weeks"])
+    usage = base.weekly_usage
+    unit = _number(dep["unit_cost_cny"], "unit_cost_cny")
+    ready = _number(dep["substitute_effort_weeks"], "substitute_effort_weeks")
+    ready_week = max(1, int(ceil(ready)))
     horizon = params.horizon_weeks
+    extra_stock = params.initial_stock_weeks_extra + extra_weeks
+    existing_alt = params.alt_ready_week is not None and params.alt_capacity_pct > 0
+    existing_measures = params.initial_stock_weeks_extra > 0 or existing_alt
 
     def metrics(result: ScenarioResult) -> dict:
         affected = result.order_impact[result.order_impact["状态"] == "受影响·需协调"]
@@ -533,9 +555,8 @@ def compare_plans(
             "value_cny": float(affected["order_value_cny"].sum()),
         }
 
-    base = run_scenario(repo, params)
     m_base = metrics(base)
-    plan_a = run_scenario(repo, replace(params, initial_stock_weeks_extra=extra_weeks))
+    plan_a = run_scenario(repo, replace(params, initial_stock_weeks_extra=extra_stock))
     m_a = metrics(plan_a)
     plan_c = run_scenario(
         repo,
@@ -546,7 +567,7 @@ def compare_plans(
         repo,
         replace(
             params,
-            initial_stock_weeks_extra=extra_weeks,
+            initial_stock_weeks_extra=extra_stock,
             alt_ready_week=ready,
             alt_capacity_pct=100.0,
         ),
@@ -554,19 +575,21 @@ def compare_plans(
     m_ac = metrics(plan_ac)
 
     def fmt_runout(w: float | None) -> str:
-        return "不断供" if w is None else f"第 {w:.0f} 周"
+        return "窗口内无缺口" if w is None else f"第 {w:.0f} 周"
 
     cost_a = usage * unit * extra_weeks
-    cost_c = usage * unit * alt_premium_pct * max(0, horizon - ready) + usage * unit * 2
+    # 与 run_scenario 的离散周到货一致：就绪周本身已有一批替代供给。
+    alt_active_weeks = max(0, horizon - ready_week + 1)
+    cost_c = usage * unit * alt_premium_pct * alt_active_weeks + usage * unit * 2
     rows = [
         {
-            "方案": "基准（无应对）",
+            "方案": "基准（现有措施）" if existing_measures else "基准（无应对）",
             "断供周次": fmt_runout(m_base["runout"]),
             "受影响订单数": m_base["n"],
             "受影响金额(万元)": round(m_base["value_cny"] / 1e4, 1),
             "预估成本(元·示意)": None,
             "启动时点(周)": 0,
-            "说明": "现状模拟，作为对比基线",
+            "说明": "保留输入的库存与替代供应措施，作为对比基线",
         },
         {
             "方案": f"增加安全库存（+{extra_weeks:.0f} 周）",
@@ -575,16 +598,18 @@ def compare_plans(
             "受影响金额(万元)": round(m_a["value_cny"] / 1e4, 1),
             "预估成本(元·示意)": round(cost_a, 0),
             "启动时点(周)": 0,
-            "说明": "成本≈资金占用，未计仓储与资金成本率",
+            "说明": "成本≈相对基准新增库存的资金占用，未计仓储与资金成本率",
         },
         {
-            "方案": f"启动替代供应商（第 {ready:.0f} 周后）",
+            "方案": f"替代供应方案（第 {ready_week} 周起）",
             "断供周次": fmt_runout(m_c["runout"]),
             "受影响订单数": m_c["n"],
             "受影响金额(万元)": round(m_c["value_cny"] / 1e4, 1),
             "预估成本(元·示意)": round(cost_c, 0),
-            "启动时点(周)": int(ceil(ready)),
-            "说明": f"成本≈认证/样品示意 + 按 {alt_premium_pct:.0%} 溢价的窗口期采购",
+            "启动时点(周)": ready_week,
+            "说明": ("替换输入中的既有替代供应参数；" if existing_alt else "")
+            + f"本方案成本≈认证/样品示意 + 按 {alt_premium_pct:.0%} 溢价的 {alt_active_weeks} 周采购"
+            + "，并非相对既有措施的成本差额",
         },
         {
             "方案": f"组合：加库存 + 替代供应",
@@ -593,7 +618,8 @@ def compare_plans(
             "受影响金额(万元)": round(m_ac["value_cny"] / 1e4, 1),
             "预估成本(元·示意)": round(cost_a + cost_c, 0),
             "启动时点(周)": 0,
-            "说明": "库存先顶住认证窗口，替代就绪后接管",
+            "说明": "在基准库存上继续加库存；替代供应按本方案参数设置。"
+            "成本为新增库存资金占用 + 本替代方案成本",
         },
         {
             "方案": "排产与客户协商（定性）",

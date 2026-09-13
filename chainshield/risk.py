@@ -34,6 +34,11 @@ WEIGHTS = {
     "visibility": 0.20,
 }
 SAFE_INVENTORY_WEEKS = 24.0  # 库存 ≥24 周视为缓冲充分
+FACTOR_LABELS = {
+    "concentration": "集中度风险", "event": "事件强度风险",
+    "substitutability": "可替代性风险", "buffer": "库存缓冲风险",
+    "visibility": "信息可见性风险",
+}
 
 
 def confirmed_event_mask(events: pd.DataFrame) -> pd.Series:
@@ -44,10 +49,16 @@ def confirmed_event_mask(events: pd.DataFrame) -> pd.Series:
     """
     if events is None or len(events) == 0:
         return pd.Series(dtype=bool, index=getattr(events, "index", None))
-    status = events.get("status", pd.Series("", index=events.index)).astype(str).str.lower()
-    source = events.get("source_kind", pd.Series("", index=events.index)).astype(str).str.lower()
-    confidence = events.get("confidence", pd.Series("", index=events.index)).astype(str).str.lower()
+    status = events.get("status", pd.Series("", index=events.index)).astype(str).str.strip().str.lower()
+    source = events.get("source_kind", pd.Series("", index=events.index)).astype(str).str.strip().str.lower()
+    confidence = events.get("confidence", pd.Series("", index=events.index)).astype(str).str.strip().str.lower()
     return status.eq("active") & source.eq("fact") & confidence.isin(["high", "medium"])
+
+
+def pending_event_mask(events: pd.DataFrame) -> pd.Series:
+    """解除/归档事件不属于待核实池，不能复活到评分提醒中。"""
+    status = events.get("status", pd.Series("", index=events.index)).astype(str).str.strip().str.lower()
+    return status.isin(["active", "verify"]) & ~confirmed_event_mask(events)
 
 
 def normalize_weights(weights: dict) -> dict:
@@ -61,8 +72,13 @@ def normalize_weights(weights: dict) -> dict:
             value = default
         values[key] = value if math.isfinite(value) else default
     w = {k: max(0.0, values[k]) for k in WEIGHTS}
-    total = sum(w.values()) or 1.0
-    return {k: round(v / total, 4) for k, v in w.items()}
+    scale = max(w.values())
+    if scale == 0:
+        return dict(WEIGHTS)
+    # 先缩放再求和，避免多个极大但有限的权重加总溢出到 inf。
+    scaled = {key: value / scale for key, value in w.items()}
+    total = sum(scaled.values())
+    return {key: round(value / total, 4) for key, value in scaled.items()}
 
 
 def event_score(severities: list[int]) -> float:
@@ -117,14 +133,15 @@ def exposure_report(repo: Repository, weights: dict | None = None) -> pd.DataFra
         dep_id = dep["dependency_id"]
         factors = factor_scores(repo, dep_id)
         rel_events = repo.events_for_dependency(dep_id)
-        verify_count = int((~confirmed_event_mask(rel_events)).sum())
+        verify_count = int(pending_event_mask(rel_events).sum())
         upstream_known = int(dep["upstream_known"]) == 1
         notes = []
         if not upstream_known:
             notes.append("上游授权关系不明：建议索取授权链或人工尽调")
         if verify_count:
             notes.append(f"{verify_count} 条待核实事件未计入评分，需人工确认")
-        top_factor = max(factors, key=lambda k: factors[k])
+        contributions = {label: w[key] * factors[label] for key, label in FACTOR_LABELS.items()}
+        top_factor = max(contributions, key=contributions.get)
         score = round(
             w["concentration"] * factors["集中度风险"]
             + w["event"] * factors["事件强度风险"]
@@ -146,10 +163,15 @@ def exposure_report(repo: Repository, weights: dict | None = None) -> pd.DataFra
                 "上游是否已知": "是" if upstream_known else "否",
                 **factors,
                 "主要风险因子": top_factor,
+                "主要风险贡献": round(contributions[top_factor], 2),
                 "不确定性提示": "；".join(notes),
                 "综合暴露度": score,
                 "风险等级": _level(score),
             }
         )
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows, columns=[
+        "依赖编号", "组件", "供应商", "来源国", "采购份额", "当前交期(周)",
+        "库存(周)", "可替代性", "上游是否已知", *FACTOR_LABELS.values(),
+        "主要风险因子", "主要风险贡献", "不确定性提示", "综合暴露度", "风险等级",
+    ])
     return df.sort_values("综合暴露度", ascending=False).reset_index(drop=True)
