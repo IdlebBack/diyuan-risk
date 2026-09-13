@@ -19,7 +19,7 @@ from chainshield.llm import (
     interpret_scenario,
     summarize_event,
 )
-from chainshield.repository import Repository
+from chainshield.repository import Repository, RepositoryDataError
 from chainshield.reporting import fingerprint, scenario_context, scenario_report
 from chainshield.risk import WEIGHTS, exposure_report, normalize_weights
 from chainshield.scenario import (
@@ -53,7 +53,11 @@ page = st.sidebar.radio(
 use_live = st.sidebar.toggle("叠加本地导入事件", value=False, key="use_live")
 st.sidebar.caption("默认使用固定模拟数据；案例页始终隔离导入事件，保证验收可复现。")
 # 小型 CSV 每次重读，避免多个浏览器会话共享可变缓存或读到旧事件。
-repo = Repository(include_live=use_live)
+try:
+    repo = Repository(include_live=use_live)
+except RepositoryDataError as exc:
+    st.error(str(exc))
+    st.stop()
 status = llm_status()
 api_ready = status["configured"]
 st.sidebar.divider()
@@ -99,13 +103,16 @@ def page_overview() -> None:
     )
 
     exposure = exposure_report(repo)
-    top = exposure.iloc[0]
-    with st.container(border=True):
-        st.subheader(f"优先检查：{top['组件']}")
-        st.write(f"综合暴露度 {top['综合暴露度']:.1f} / 100 · {top['风险等级']}；主要风险因子：{top['主要风险因子']}")
-        if top["不确定性提示"]:
-            st.warning(top["不确定性提示"])
-        st.caption("分数用于比较依赖，不是断供概率；默认权重为主观场景设定。")
+    if exposure.empty:
+        st.info("暂无可评估的进口依赖，请补充依赖数据。")
+    else:
+        top = exposure.iloc[0]
+        with st.container(border=True):
+            st.subheader(f"优先检查：{top['组件']}")
+            st.write(f"综合暴露度 {top['综合暴露度']:.1f} / 100 · {top['风险等级']}；主要风险因子：{top['主要风险因子']}")
+            if top["不确定性提示"]:
+                st.warning(top["不确定性提示"])
+            st.caption("分数用于比较依赖，不是断供概率；默认权重为主观场景设定。")
 
     st.subheader("进口依赖关系")
     detail = repo.dependency_detail().rename(
@@ -171,10 +178,22 @@ def page_graph() -> None:
         st.subheader("进口集中度")
         df = pd.DataFrame(concentration_metrics(repo))
         st.dataframe(df, width="stretch", hide_index=True)
-        st.info(
-            "解读示例：工业控制芯片 ICX-774 的 65% 采购集中在一个海外经销商渠道，"
-            "且上游授权关系不明——单一依赖 + 信息缺口同时存在。"
-        )
+        detail = repo.dependency_detail()
+        if detail.empty:
+            st.info("暂无进口依赖数据，补充后可查看集中度解读。")
+        else:
+            top = detail.sort_values("purchase_share", ascending=False).iloc[0]
+            st.info(
+                f"当前最大单一进口依赖：{top['dependency_id']}（{top['name']}）。"
+                f"同类组件采购的 {top['purchase_share']:.0%} 来自"
+                f"{top['name_sup']}（{top['country']}）。"
+            )
+            unknown = detail.loc[detail["upstream_known"].eq(0)]
+            if not unknown.empty:
+                st.warning(
+                    "上游关系待核实：" + "、".join(unknown["dependency_id"].astype(str))
+                    + "。请索取上游授权链或安排人工尽调；红色虚线不代表已确认断供。"
+                )
 
 
 def page_exposure() -> None:
@@ -221,6 +240,9 @@ def page_exposure() -> None:
     )
 
     df = exposure_report(repo, weights)
+    if df.empty:
+        st.info("暂无可评估的进口依赖，请补充依赖数据。")
+        return
     st.dataframe(df, width="stretch", hide_index=True)
     st.download_button("下载暴露度明细 CSV", df.to_csv(index=False).encode("utf-8-sig"),
                        file_name="地缘风险_暴露度.csv", mime="text/csv", key="download_exposure")
@@ -234,11 +256,11 @@ def page_exposure() -> None:
         st.dataframe(sens, width="stretch", hide_index=True)
         stable = sens.attrs.get("top1_stable")
         top_dep = sens.attrs.get("top_dependency", "最高风险依赖")
-        if stable is not None:
+        if stable:
             st.success(f"最高风险依赖（{top_dep}）在所有扰动下保持第一，"
-                       "仅限本次局部扰动范围；波动幅度见上表。"
-                       if stable else
-                       "注意：最高风险依赖在部分扰动下会变化，解读时需谨慎。")
+                       "仅限本次局部扰动范围；波动幅度见上表。")
+        elif stable is not None:
+            st.warning("最高风险依赖在部分扰动下会变化，解读时需谨慎。")
 
     with st.expander("案例校验（反事实检查）", expanded=False):
         for item in case_checks(repo):
@@ -258,6 +280,9 @@ def page_scenario() -> None:
         ]
         for _, d in detail.iterrows()
     }
+    if not options:
+        st.info("暂无可推演的进口依赖，请补充依赖数据。")
+        return
 
     tab1, tab2, tab3 = st.tabs(["单依赖推演", "多依赖并行", "应对方案比较"])
 
@@ -309,15 +334,34 @@ def page_scenario() -> None:
             ],
             key="multi_events",
         )
-        if st.button("叠加推演", type="primary", key="run_multi"):
-            chosen_ids = [event_map[k] for k in picked]
-            pending = pending_event_ids(repo, chosen_ids)
-            if pending:
-                st.warning(
-                    "已忽略待核实事件（置信度低/来源为传闻，不构成推演结论）："
-                    + "；".join(str(x) for x in pending)
-                    + "。如需假设分析请先人工核实后改为 active。"
+        chosen_ids = [event_map[k] for k in picked]
+        input_fingerprint = fingerprint({
+            "selected_event_ids": sorted(chosen_ids),
+            "include_live": use_live,
+            "tables": {
+                name: getattr(repo, name).to_dict(orient="records")
+                for name in (
+                    "components", "suppliers", "dependencies", "orders",
+                    "order_lines", "pipeline", "events",
                 )
+            },
+        })
+        if st.session_state.get("multi_fingerprint") != input_fingerprint:
+            previous_result = st.session_state.pop("multi_result", None)
+            st.session_state.pop("multi_fingerprint", None)
+            st.session_state.pop("ai_result_multi_interpret", None)
+            if previous_result is not None:
+                st.info("事件选择或数据已变化，旧推演结果已清除；请重新点击“叠加推演”。")
+
+        pending = pending_event_ids(repo, chosen_ids)
+        if pending:
+            st.warning(
+                "以下待核实事件不会进入默认推演：" + "；".join(pending)
+                + "。需人工核实来源、置信度和影响后才能纳入确认事件。"
+            )
+        if st.button("叠加推演", type="primary", key="run_multi"):
+            st.session_state.pop("multi_result", None)
+            st.session_state.pop("multi_fingerprint", None)
             shocks = shocks_from_events(repo, chosen_ids)
             if chosen_ids and not shocks:
                 st.warning("所选事件均被忽略或未关联到任何现有依赖，无法推演。")
@@ -325,6 +369,7 @@ def page_scenario() -> None:
                 st.info("请先选择要叠加的事件。")
             else:
                 st.session_state["multi_result"] = run_multi_scenario(repo, shocks)
+                st.session_state["multi_fingerprint"] = input_fingerprint
         multi = st.session_state.get("multi_result")
         if multi is not None:
             for msg in multi.messages:
@@ -338,14 +383,7 @@ def page_scenario() -> None:
             st.subheader("叠加后的订单影响")
             st.dataframe(multi.order_impact, width="stretch", hide_index=True)
             context_lines = list(multi.messages)
-            context_lines.append(
-                "受影响订单："
-                + str(
-                    multi.order_impact[
-                        multi.order_impact["状态"] == "受影响·需协调"
-                    ]["order_id"].tolist()
-                )
-            )
+            context_lines.extend(scenario_context(result) for result in multi.results)
             _render_ai_interpretation(
                 key="multi_interpret",
                 context="\n".join(context_lines),
@@ -509,24 +547,36 @@ def page_events() -> None:
             feed_url = st.text_input(
                 "自定义 RSS/Atom 源（可选）", placeholder="https://example.com/rss"
             )
+        signal_input = fingerprint({
+            "include_samples": include_samples, "custom_feed_url": feed_url.strip(),
+        })
+        if st.session_state.get("signal_input") != signal_input:
+            st.session_state.pop("signals_df", None)
+            st.session_state.pop("signal_warnings", None)
         if st.button("运行信号巡检", type="primary"):
-            signals, warnings = fetch_signals(
-                include_samples=include_samples, custom_feed_url=feed_url
-            )
-            if signals:
-                df = pd.DataFrame([s.as_dict() for s in signals])
-                df.insert(0, "选择", False)
-                st.session_state["signals_df"] = df
+            with st.spinner("正在巡检信号源…"):
+                signals, warnings = fetch_signals(
+                    include_samples=include_samples, custom_feed_url=feed_url
+                )
+            df = pd.DataFrame([s.as_dict() for s in signals])
+            df.insert(0, "选择", False)
+            st.session_state["signals_df"] = df
+            st.session_state["signal_input"] = signal_input
+            # 每次巡检使用新编辑器，不能把旧批次勾选状态套到新信号的行号上。
+            st.session_state["signal_revision"] = st.session_state.get("signal_revision", 0) + 1
             st.session_state["signal_warnings"] = warnings
         for w in st.session_state.get("signal_warnings", []):
             st.warning(w)
 
-        if st.session_state.get("signals_df") is not None:
+        signal_frame = st.session_state.get("signals_df")
+        if signal_frame is not None and signal_frame.empty:
+            st.info("本次巡检未返回信号，旧结果已清除；请检查来源或调整巡检选项。")
+        elif signal_frame is not None:
             df = st.session_state["signals_df"]
             st.caption(f"共 {len(df)} 条信号。勾选要入库的信号后点击下方按钮。")
             edited = st.data_editor(
                 df,
-                key="signal_editor",
+                key=f"signal_editor_{st.session_state.get('signal_revision', 0)}",
                 width="stretch",
                 hide_index=True,
                 disabled=[
@@ -563,7 +613,7 @@ def page_events() -> None:
                 repo.reload_events()
                 st.success(
                     f"已入库 {added} 条事件。"
-                    "置信度低或属推断/传闻的条目自动标记为“待核实”。"
+                    "所有新导入条目均进入待核实池，需人工核实后才可参与确定性结论。"
                 )
                 st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         else:
