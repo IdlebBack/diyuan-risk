@@ -7,11 +7,21 @@ on:
 
 jobs:
   offline-checks:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      PYTHONIOENCODING: utf-8
+      MPLBACKEND: Agg
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,5 +32,3 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python scripts/cases.py
       - run: python scripts/demo.py
-        env:
-          PYTHONIOENCODING: utf-8
