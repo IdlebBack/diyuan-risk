@@ -31,15 +31,25 @@ from chainshield.scenario import (
     shocks_from_events,
 )
 from chainshield.signals import Signal, fetch_signals
+from chainshield.ui import (
+    inject_global_styles,
+    render_footer,
+    render_page_header,
+    render_sidebar_brand,
+)
 from chainshield.validation import case_checks, sensitivity_report
 
-st.set_page_config(page_title="地缘风险", page_icon="🛡️", layout="wide")
+st.set_page_config(
+    page_title="地缘风险 · 供应链风险雷达",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-
-st.sidebar.title("🛡️ 地缘风险")
-st.sidebar.caption("供应链地缘风险雷达 · 赛道 B")
+inject_global_styles()
+render_sidebar_brand()
 page = st.sidebar.radio(
-    "导航",
+    "工作台导航",
     [
         "1 企业概览",
         "2 依赖图谱",
@@ -77,8 +87,28 @@ def _record_ai_call(out: dict) -> None:
 _show_ai_status()
 
 
+def _event_table_view(frame: pd.DataFrame) -> pd.DataFrame:
+    """事件库主视图只保留评委需要快速判断的证据字段。"""
+    columns = [
+        "event_id", "date", "title", "countries", "severity",
+        "confidence", "source_kind", "source",
+    ]
+    return frame.reindex(columns=columns).rename(
+        columns={
+            "event_id": "编号", "date": "日期", "title": "事件",
+            "countries": "国家/地区", "severity": "强度",
+            "confidence": "置信度", "source_kind": "内容类型", "source": "来源",
+        }
+    )
+
+
 def page_overview() -> None:
-    st.title("企业供应链地缘风险总览")
+    render_page_header(
+        "01",
+        "态势总览 · SITUATION OVERVIEW",
+        "企业供应链地缘风险总览",
+        "汇总关键依赖、风险信号与订单暴露，快速定位最需要人工复核的风险节点。",
+    )
     st.caption("数据场景：赛题虚构的 XX 智能装备有限公司（高端智能装备制造）")
     st.info("建议验收路线：先看依赖图谱 → 调整暴露度权重 → 比较断供情景 → 用案例页检查边界。")
     if use_live:
@@ -158,7 +188,12 @@ def page_overview() -> None:
 
 
 def page_graph() -> None:
-    st.title("供应链依赖图谱")
+    render_page_header(
+        "02",
+        "依赖图谱 · DEPENDENCY GRAPH",
+        "供应链依赖图谱",
+        "串联供应商、关键组件与待交付订单，让集中采购和上游信息缺口一目了然。",
+    )
     st.caption("供应商 → 组件 → 待交付订单。红色虚线 = 上游授权关系不明的依赖。")
 
     col1, col2 = st.columns([2, 1])
@@ -170,7 +205,11 @@ def page_graph() -> None:
     with col2:
         st.subheader("进口集中度")
         df = pd.DataFrame(concentration_metrics(repo))
-        st.dataframe(df, width="stretch", hide_index=True)
+        concentration = df[["组件", "进口采购份额合计"]].copy()
+        concentration["进口采购份额"] = concentration.pop("进口采购份额合计").map(
+            lambda value: f"{value:.0%}"
+        )
+        st.dataframe(concentration, width="stretch", hide_index=True)
         st.info(
             "解读示例：工业控制芯片 ICX-774 的 65% 采购集中在一个海外经销商渠道，"
             "且上游授权关系不明——单一依赖 + 信息缺口同时存在。"
@@ -178,7 +217,12 @@ def page_graph() -> None:
 
 
 def page_exposure() -> None:
-    st.title("关键依赖暴露度评估")
+    render_page_header(
+        "03",
+        "暴露评估 · EXPOSURE ASSESSMENT",
+        "关键依赖暴露度评估",
+        "用五因子透明评分比较依赖，再以敏感性分析与反事实案例检查结论稳定性。",
+    )
     st.caption(
         "五因子加权：依赖集中度 20% + 事件强度 25% + 可替代性 20% + 库存缓冲 15% "
         "+ 信息可见性 20%（事件按叠加公式而非简单相加）。权重可实时调节。"
@@ -250,7 +294,12 @@ def page_exposure() -> None:
 
 
 def page_scenario() -> None:
-    st.title("情景推演器")
+    render_page_header(
+        "04",
+        "情景推演 · SCENARIO SIMULATION",
+        "供应链风险情景推演",
+        "把风险信号转为可调冲击参数，推演库存、断供节点、订单影响和应对方案。",
+    )
     detail = repo.dependency_detail()
     options = {
         f"{d['dependency_id']} · {d['name']} · {d['name_sup']}（{d['country']}）": d[
@@ -458,14 +507,19 @@ def _render_ai_interpretation(key: str, context: str, caption: str) -> None:
 
 
 def page_events() -> None:
-    st.title("风险事件库与信号导入")
+    render_page_header(
+        "05",
+        "信号雷达 · SIGNAL RADAR",
+        "风险事件库与信号导入",
+        "从公开信号到结构化事件，全程保留来源、置信度和人工核实状态。",
+    )
 
     tabs = st.tabs(["事件库", "信号巡检与导入", "AI 文本抽取（实验）"])
     with tabs[0]:
         st.subheader("活跃事件")
-        st.dataframe(active_events(repo), width="stretch", hide_index=True)
+        st.dataframe(_event_table_view(active_events(repo)), width="stretch", hide_index=True)
         st.subheader("待核实事件")
-        st.dataframe(pending_verification(repo), width="stretch", hide_index=True)
+        st.dataframe(_event_table_view(pending_verification(repo)), width="stretch", hide_index=True)
         st.subheader("AI 事件摘要（实验）")
         st.caption(
             "对单条事件生成“事实、推断、待核实”一句话摘要。"
@@ -596,7 +650,12 @@ def page_events() -> None:
 
 
 def page_cases() -> None:
-    st.title("案例与边界演示（里程碑 4）")
+    render_page_header(
+        "06",
+        "案例验证 · CASE VALIDATION",
+        "案例与边界演示",
+        "以四类可复现案例验证断供预警、在途延误、信息缺口和待核实事件的处理边界。",
+    )
     case_repo = Repository(include_live=False)
     st.caption(
         "推荐口径：不改动赛题“三批订单”设定；案例 A/B 重点展示断供点预警、"
@@ -728,3 +787,4 @@ PAGES = {
 }
 
 PAGES[page]()
+render_footer()
