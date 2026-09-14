@@ -11,6 +11,7 @@ from threading import RLock
 import pandas as pd
 
 from .config import DATA_DIR
+from .data_validation import RepositoryDataError, validate_tables
 
 # 同一 Streamlit 进程内各会话共享；写入另用原子替换，读取不会看到半份 CSV。
 EVENT_FILE_LOCK = RLock()
@@ -30,6 +31,8 @@ def read_event_csv(path: Path) -> pd.DataFrame:
             frame = pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False)
         except pd.errors.EmptyDataError:
             frame = pd.DataFrame()
+        except (OSError, UnicodeError, pd.errors.ParserError):
+            raise RepositoryDataError(f"无法读取 {path.name}，请检查文件是否存在、UTF-8 编码及 CSV 格式") from None
     for column, default in EVENT_DEFAULTS.items():
         if column not in frame:
             frame[column] = default
@@ -54,16 +57,25 @@ class Repository:
         self.order_lines = self._load("order_lines.csv")
         pipeline_path = self.data_dir / "pipeline.csv"
         self.pipeline = (
-            pd.read_csv(pipeline_path, encoding="utf-8-sig")
+            self._load("pipeline.csv")
             if pipeline_path.exists()
             else pd.DataFrame(columns=["po_id", "dependency_id", "quantity_units", "eta_week"])
         )
+        tables = validate_tables({
+            name: getattr(self, name)
+            for name in ("components", "suppliers", "dependencies", "orders", "order_lines", "pipeline")
+        })
+        for name, frame in tables.items():
+            setattr(self, name, frame)
         self.events = self._read_events()
 
     def _load(self, name: str) -> pd.DataFrame:
         path = self.data_dir / name
-        df = pd.read_csv(path, encoding="utf-8-sig")
-        return df
+        try:
+            # 先保留标识符/文本原样，数值在 schema 校验时显式转换。
+            return pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False, dtype=str)
+        except (OSError, UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
+            raise RepositoryDataError(f"无法读取 {name}，请检查文件是否存在、UTF-8 编码及 CSV 表头") from None
 
     def _read_events(self) -> pd.DataFrame:
         """合并种子事件与本地导入事件（events_live.csv，可不存在）。"""
@@ -75,10 +87,11 @@ class Repository:
         for column, default in EVENT_DEFAULTS.items():
             seed[column] = seed[column].fillna(default)
         for column, allowed, default in (
-            ("status", {"active", "verify"}, "verify"),
+            ("status", {"active", "verify", "resolved"}, "verify"),
             ("confidence", {"high", "medium", "low"}, "low"),
             ("source_kind", {"fact", "inference", "rumor"}, "inference"),
         ):
+            seed[column] = seed[column].astype(str).str.strip().str.lower()
             seed.loc[~seed[column].isin(allowed), column] = default
         severity = pd.to_numeric(seed["severity"], errors="coerce").replace(
             [float("inf"), float("-inf")], float("nan")
@@ -88,7 +101,8 @@ class Repository:
             [float("inf"), float("-inf")], float("nan")
         )
         # 未知效果/无效数值不能进入推演引擎的“按严重度猜测供应损失”分支。
-        invalid_effect = ~seed["effect_kind"].isin(EFFECT_KINDS) | effects.isna()
+        seed["effect_kind"] = seed["effect_kind"].astype(str).str.strip().str.lower()
+        invalid_effect = ~seed["effect_kind"].isin(EFFECT_KINDS) | effects.isna() | effects.lt(0)
         seed["effect_value"] = effects.fillna(0).clip(0, 1000)
         pct = seed["effect_kind"].eq("supply_reduction_pct")
         seed.loc[pct, "effect_value"] = seed.loc[pct, "effect_value"].clip(upper=100)
@@ -110,11 +124,13 @@ class Repository:
             on="component_id",
             how="left",
             suffixes=("", "_comp"),
+            validate="many_to_one",
         ).merge(
             self.suppliers,
             on="supplier_id",
             how="left",
             suffixes=("", "_sup"),
+            validate="many_to_one",
         )
         # 该进口件的周用量 = 组件总周用量 × 进口采购份额
         df["weekly_usage"] = df["total_weekly_units"] * df["purchase_share"]
@@ -123,9 +139,12 @@ class Repository:
         return df
 
     def component_orders(self) -> pd.DataFrame:
-        """订单行 × 订单：每个订单需要哪些组件、各多少。"""
-        return self.order_lines.merge(
-            self.orders, on="order_id", how="left", suffixes=("", "_ord")
+        """订单行 × 订单：同订单同组件的拆分行先汇总，图谱/推演口径一致。"""
+        lines = self.order_lines.groupby(
+            ["order_id", "component_id"], as_index=False, sort=False
+        )["quantity"].sum()
+        return lines.merge(
+            self.orders, on="order_id", how="left", suffixes=("", "_ord"), validate="many_to_one"
         )
 
     def events_for_dependency(self, dependency_id: str) -> pd.DataFrame:

@@ -44,7 +44,9 @@ SOURCE_TREES = {
     "tests": {".py"},
     "data/seed": {".csv"},
 }
-FORMAL_PPT_NAME = re.compile(r"地缘风险_产品介绍PPT_\d{8}\.pptx\Z")
+FORMAL_PPT_NAME = re.compile(
+    r"地缘风险_产品介绍PPT_(\d{8})(?P<premium>_精美版)?\.pptx\Z"
+)
 EXCLUDED_PARTS = {
     ".git", ".venv", "venv", "__pycache__", "dist", "tmp", "temp",
     "local", "private", "logs", "secrets", "credentials", "keys", "certs",
@@ -143,13 +145,18 @@ def collect_files(root: Path) -> list[Path]:
         files.update(_walk_source(root, Path(name), extensions))
     docs = _safe_path(root, Path("docs"))
     if docs is not None and docs.is_dir():
+        candidates: list[tuple[tuple[str, bool], Path]] = []
         for path in docs.iterdir():
-            if FORMAL_PPT_NAME.fullmatch(path.name):
+            match = FORMAL_PPT_NAME.fullmatch(path.name)
+            if match:
                 relative = path.relative_to(root)
                 checked = _safe_path(root, relative)
                 if checked is None or not checked.is_file():
                     raise PackageError(f"PPT 文件类型不正确：{relative.as_posix()}")
-                files.add(relative)
+                candidates.append(((match.group(1), bool(match.group("premium"))), relative))
+        if candidates:
+            # 只发布最新日期；同日优先精美版，避免评委在提交包里看到多个版本。
+            files.add(max(candidates, key=lambda item: item[0])[1])
     return sorted(files, key=lambda path: path.as_posix())
 
 

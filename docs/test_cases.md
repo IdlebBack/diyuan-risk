@@ -1,4 +1,30 @@
-# 里程碑 4：案例验收与测试基线
+# 案例验收与测试基线
+
+## 2026-09-13 边界回归补充
+
+本轮以远程 `52ff7de` 为基线优化，种子数据和三批订单不变。下面先记录新增验收项；
+后文保留里程碑 4 的历史记录与里程碑 6 的模型口径修正。
+
+| 输入/操作 | 修复后的预期行为 | 回归文件 |
+| --- | --- | --- |
+| 严重度 5，明确供应削减 0% | 保持 0%，不猜测为 75% | `tests/test_scenario_edges.py` |
+| EVT-04 正常交期 12 + 延长 2，当前已为 16 周 | 自动推演交期不低于 16 周 | `tests/test_scenario_edges.py` |
+| 无订单关联某依赖/空多依赖冲击 | 时间线正常、订单表保留完整列、提示未评估 | `tests/test_scenario_edges.py` |
+| 既有额外库存 12 周，再追加 8 周 | 按总计 20 周额外库存推演，费用只计本次 8 周 | `tests/test_scenario_edges.py` |
+| 全部权重为 0 / 只有事件权重非零 | 回落默认 / 主因子按事件加权贡献选取 | `tests/test_risk_edges.py` |
+| resolved 事件加载、刷新并启用假设模式 | 保持解除，不进入冲击和待核实提醒 | `tests/test_repository_validation.py` |
+| 缺列、主键重复、外键不存在、非法数值 | 加载时给出文件/列/行提示，不进入计算 | `tests/test_repository_validation.py` |
+| 同订单同组件拆分成多行 | 数量相加、订单金额不重复 | `tests/test_repository_validation.py` |
+| 图例、节点、订单数量标签布局 | 图例独立在绘图区外，标签不相互重叠 | `tests/test_graph.py` |
+| 事件选择/数据模式/CSV 变化 | 清除旧并行结果及旧 AI 解读，提示重新推演 | `tests/test_ui.py` |
+| 空巡检/更改来源 | 清除旧信号，旧勾选不套用新批次 | `tests/test_ui.py` |
+| 模拟文件替换失败/批内单条抽取异常 | 原文件与输入保持，其他条目仍可处理 | `tests/test_ingest_edges.py` |
+| 打包含合成凭据、坏 PPT、越界链接或写入失败 | 拒绝/清理残包，旧包不被覆盖 | `tests/test_package.py` |
+
+运行：`python -m unittest discover -s tests -v`、`python scripts/cases.py`、
+`python scripts/demo.py`。测试使用临时数据与请求替身，不读写真实事件库或使用真实 Key。
+
+---
 
 > 初版：2026-09-04；口径定稿：2026-09-07
 > 基线提交：`699a519`（里程碑 3）

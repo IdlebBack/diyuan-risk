@@ -62,7 +62,7 @@ def build_graph(repo: Repository) -> nx.DiGraph:
                 sup,
                 kind=("unknown" if row["role"] == "unknown" else "supplier"),
                 country=row["country"],
-                label=row["name"],
+                label=row["name_sup"],
             )
         if comp not in G:
             row_c = repo.components[repo.components["component_id"] == comp].iloc[0]
@@ -118,17 +118,26 @@ def draw_graph(repo: Repository, figsize=(12, 6)) -> plt.Figure:
     pos = layered_positions(G)
     fig, ax = plt.subplots(figsize=figsize)
 
+    if not G:
+        ax.text(0.5, 0.5, "暂无可绘制的依赖关系", ha="center", va="center")
+        ax.axis("off")
+        return fig
+
     node_colors = []
     for node in G.nodes:
         node_colors.append(COLORS[G.nodes[node]["kind"]])
 
+    node_size = 2600
+    certain_edges = [(u, v) for u, v, d in G.edges(data=True) if not d.get("uncertain")]
     nx.draw_networkx_edges(
         G,
         pos,
         ax=ax,
+        edgelist=certain_edges,
         edge_color="#999999",
         arrows=True,
         arrowsize=12,
+        node_size=node_size,
         width=1.2,
     )
     # 上游信息缺失的依赖画成红色虚线，突出不确定性
@@ -145,20 +154,27 @@ def draw_graph(repo: Repository, figsize=(12, 6)) -> plt.Figure:
             style="dashed",
             arrows=True,
             arrowsize=12,
+            node_size=node_size,
             width=1.8,
         )
 
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=2600)
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_size)
     nx.draw_networkx_labels(G, pos, ax=ax, font_size=9, font_family="sans-serif")
 
-    edge_labels = {}
+    dependency_labels = {}
+    order_labels = {}
     for u, v, d in G.edges(data=True):
         if d["kind"] == "depend":
-            edge_labels[(u, v)] = f"{d['share']*100:.0f}%·{d['lead_weeks']}周"
+            dependency_labels[(u, v)] = f"{d['share']*100:.0f}%·{d['lead_weeks']}周"
         else:
-            edge_labels[(u, v)] = f"{d['qty']}件"
+            order_labels[(u, v)] = f"{d['qty']}件"
     nx.draw_networkx_edge_labels(
-        G, pos, ax=ax, edge_labels=edge_labels, font_size=8
+        G, pos, ax=ax, edge_labels=dependency_labels, font_size=8
+    )
+    # 订单连线常在中点相交；标签向订单一侧偏移，避免不同订单数量互相覆盖。
+    nx.draw_networkx_edge_labels(
+        G, pos, ax=ax, edge_labels=order_labels, font_size=8,
+        label_pos=0.72, rotate=False,
     )
 
     ax.set_title("供应链依赖图谱：供应商 → 组件 → 待交付订单", fontsize=13)
@@ -166,9 +182,18 @@ def draw_graph(repo: Repository, figsize=(12, 6)) -> plt.Figure:
     legend = [
         plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=c, markersize=12, label=l)
         for l, c in [("供应商", COLORS["supplier"]), ("组件", COLORS["component"]),
-                     ("订单", COLORS["order"]), ("上游不明", COLORS["unknown"])]
+                     ("订单", COLORS["order"])]
     ]
-    ax.legend(handles=legend, loc="upper right", frameon=False)
+    legend.append(
+        plt.Line2D([0], [0], color=COLORS["unknown"], linestyle="--",
+                   linewidth=1.8, label="上游关系待核实")
+    )
+    ax.legend(
+        handles=legend, loc="upper left", bbox_to_anchor=(1.02, 1.0),
+        frameon=False, borderaxespad=0,
+    )
+    # 图例占用独立的右侧区域，不压住订单节点或箭头。
+    fig.subplots_adjust(right=0.79)
     return fig
 
 
