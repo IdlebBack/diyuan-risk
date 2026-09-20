@@ -339,7 +339,7 @@ def render_footer() -> None:
         """
         <footer class="gr-footer">
           <span><span class="gr-footer-dot"></span><strong>确定性模型可复现</strong> · AI 仅作辅助解读</span>
-          <span>模拟数据 · 来源可追溯 · 结论需人工复核</span>
+          <span>西北民族大学 · 林明强 · 陈治希 · 李宇欣</span>
         </footer>
         """,
         unsafe_allow_html=True,

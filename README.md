@@ -57,11 +57,11 @@
 - [x] 打包脚本与提交包（`scripts/package.py`，产物在本地 `dist/`）
 - [x] 在线部署配置（`.streamlit/config.toml`；实际部署见下方步骤）
 - [x] 产品介绍 PPT 大纲（`docs/产品介绍PPT_大纲.md`）
-- [x] 产品介绍 PPT 成品（西北民族大学：陈冶希、李宇欣；精美版 `docs/地缘风险_产品介绍PPT_20260910_精美版.pptx`）
+- [x] 产品介绍 PPT 成品（西北民族大学：林明强、陈治希、李宇欣；精美版 `docs/地缘风险_产品介绍PPT_20260920_精美版.pptx`）
 
 ## 成果交付清单（2026-10-19 17:00 前提交 risk_a_lab@126.com）
 
-- [x] 产品介绍 PPT（16 页精美版 `docs/地缘风险_产品介绍PPT_20260910_精美版.pptx`；大纲见 `docs/产品介绍PPT_大纲.md`）
+- [x] 产品介绍 PPT（16 页精美版 `docs/地缘风险_产品介绍PPT_20260920_精美版.pptx`；大纲见 `docs/产品介绍PPT_大纲.md`）
 - [ ] 可运行产品系统（`streamlit run app.py`；如需在线部署再补充访问链接）
 - [x] 源代码与运行说明（本仓库即代码包：README + requirements + .env.example；
      提交前用 `python scripts/package.py` 生成 zip）

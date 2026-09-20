@@ -46,6 +46,12 @@ class UiTests(unittest.TestCase):
         self.assertIn("prefers-reduced-motion", GLOBAL_CSS)
         self.assertIn("focus-visible", GLOBAL_CSS)
 
+    def test_team_members_are_rendered_in_footer(self) -> None:
+        app = self.create_app()
+        footer_text = " ".join(block.value for block in app.markdown)
+        for member in ("林明强", "陈治希", "李宇欣"):
+            self.assertIn(member, footer_text)
+
     def test_repository_error_is_shown_without_traceback(self) -> None:
         with patch(
             "chainshield.repository.Repository",
